@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "description": "A client of Ambix Allie",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Client name" },
+        "contactPerson": { "type": "string", "description": "Primary contact person" },
+        "company": { "type": "string", "description": "Company name" },
+        "email": { "type": "string", "format": "email", "description": "Contact email" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "industry": { "type": "string", "enum": ["Creative", "Business", "Platforms"], "description": "Client industry" },
+        "status": { "type": "string", "enum": ["Active", "Lead", "Inactive"], "description": "Current client status" },
+        "notes": { "type": "string", "description": "Important details or interaction notes" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "UID of the user who created this client" }
+      },
+      "required": ["name", "company", "email", "status", "createdAt", "createdBy"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A project for a client",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Project title" },
+        "type": { "type": "string", "enum": ["Mobile App", "Website", "Business", "Creative", "Platform"], "description": "Project type" },
+        "clientId": { "type": "string", "description": "ID of the associated client" },
+        "clientName": { "type": "string", "description": "Name of the associated client (denormalized)" },
+        "status": { "type": "string", "enum": ["Planning", "In Progress", "Review", "Completed", "On Hold"], "description": "Current project status" },
+        "startDate": { "type": "string", "format": "date", "description": "Project start date" },
+        "estimatedEndDate": { "type": "string", "format": "date", "description": "Estimated project end date" },
+        "actualEndDate": { "type": "string", "format": "date", "description": "Actual project end date" },
+        "budget": { "type": "number", "description": "Project budget" },
+        "description": { "type": "string", "description": "Project description" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "UID of the user who created this project" }
+      },
+      "required": ["title", "type", "clientId", "status", "createdAt", "createdBy"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A task within a project",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Task title" },
+        "projectId": { "type": "string", "description": "ID of the associated project" },
+        "status": { "type": "string", "enum": ["Todo", "In Progress", "Done"], "description": "Current task status" },
+        "dueDate": { "type": "string", "format": "date", "description": "Task due date" },
+        "assignedTo": { "type": "string", "description": "Name of the person assigned" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "UID of the user who created this task" }
+      },
+      "required": ["title", "projectId", "status", "createdAt", "createdBy"]
+    }
+  },
+  "firestore": {
+    "/clients/{clientId}": { "schema": "Client", "description": "Collection of clients" },
+    "/projects/{projectId}": { "schema": "Project", "description": "Collection of projects" },
+    "/tasks/{taskId}": { "schema": "Task", "description": "Collection of tasks" }
+  }
+}
