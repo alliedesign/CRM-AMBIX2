@@ -28,10 +28,12 @@
         "clientId": { "type": "string", "description": "ID of the associated client" },
         "clientName": { "type": "string", "description": "Name of the associated client (denormalized)" },
         "status": { "type": "string", "enum": ["Planning", "In Progress", "Review", "Completed", "On Hold"], "description": "Current project status" },
+        "paymentStatus": { "type": "string", "enum": ["Not Paid", "Deposit Received", "Partially Paid", "Fully Paid"], "description": "Financial status of the project" },
         "startDate": { "type": "string", "format": "date", "description": "Project start date" },
         "estimatedEndDate": { "type": "string", "format": "date", "description": "Estimated project end date" },
         "actualEndDate": { "type": "string", "format": "date", "description": "Actual project end date" },
         "budget": { "type": "number", "description": "Project budget" },
+        "totalPaid": { "type": "number", "description": "Total amount paid so far" },
         "liveUrl": { "type": "string", "description": "URL to the live product (website or app)" },
         "description": { "type": "string", "description": "Project description" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
@@ -86,13 +88,17 @@
       "description": "Financial transaction record",
       "type": "object",
       "properties": {
-        "amount": { "type": "number" },
-        "clientId": { "type": "string" },
-        "status": { "type": "string", "enum": ["Pending", "Paid", "Overdue", "Cancelled"] },
-        "date": { "type": "string", "format": "date" },
-        "description": { "type": "string" }
+        "amount": { "type": "number", "description": "Amount paid in this transaction" },
+        "clientId": { "type": "string", "description": "ID of the client" },
+        "projectId": { "type": "string", "description": "ID of the associated project" },
+        "projectTitle": { "type": "string", "description": "Title of the associated project (denormalized)" },
+        "status": { "type": "string", "enum": ["Pending", "Paid", "Overdue", "Cancelled"], "description": "Transaction status" },
+        "type": { "type": "string", "enum": ["Deposit", "Installment", "Final Payment", "Other"], "description": "Type of payment" },
+        "date": { "type": "string", "format": "date", "description": "Date of payment" },
+        "description": { "type": "string", "description": "Payment description" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
       },
-      "required": ["amount", "clientId", "status", "date"]
+      "required": ["amount", "clientId", "projectId", "status", "date", "createdAt"]
     },
     "QnA": {
       "title": "QnA",

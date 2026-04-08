@@ -110,7 +110,21 @@ service cloud.firestore {
       return hasRequiredFields(['title', 'type', 'clientId', 'status', 'createdAt', 'createdBy']) &&
         data.title is string && data.title.size() < 200 &&
         data.type in ['Mobile App', 'Website', 'Business', 'Creative', 'Platform'] &&
-        data.status in ['Planning', 'In Progress', 'Review', 'Completed', 'On Hold'];
+        data.status in ['Planning', 'In Progress', 'Review', 'Completed', 'On Hold'] &&
+        (!('paymentStatus' in data) || data.paymentStatus in ['Not Paid', 'Deposit Received', 'Partially Paid', 'Fully Paid']) &&
+        (!('totalPaid' in data) || data.totalPaid is number) &&
+        (!('budget' in data) || data.budget is number);
+    }
+
+    function isValidPayment(data) {
+      return hasRequiredFields(['amount', 'clientId', 'projectId', 'status', 'date', 'createdAt']) &&
+        data.amount is number &&
+        data.clientId is string &&
+        data.projectId is string &&
+        data.status in ['Pending', 'Paid', 'Overdue', 'Cancelled'] &&
+        (!('type' in data) || data.type in ['Deposit', 'Installment', 'Final Payment', 'Other']) &&
+        data.date is string &&
+        data.createdAt is timestamp;
     }
 
     function isValidTask(data) {
@@ -148,12 +162,16 @@ service cloud.firestore {
 
     match /projects/{projectId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow write: if isAdmin();
+      allow create: if isAdmin() && isValidProject(request.resource.data);
+      allow update: if isAdmin() && isValidProject(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /tasks/{taskId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow write: if isAdmin();
+      allow create: if isAdmin() && isValidTask(request.resource.data);
+      allow update: if isAdmin() && isValidTask(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /contracts/{contractId} {
@@ -163,7 +181,9 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow write: if isAdmin();
+      allow create: if isAdmin() && isValidPayment(request.resource.data);
+      allow update: if isAdmin() && isValidPayment(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /qna/{qnaId} {

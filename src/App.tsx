@@ -45,10 +45,12 @@ interface Project {
   clientId: string;
   clientName: string;
   status: 'Planning' | 'In Progress' | 'Review' | 'Completed' | 'On Hold';
+  paymentStatus?: 'Not Paid' | 'Deposit Received' | 'Partially Paid' | 'Fully Paid';
   startDate?: string;
   estimatedEndDate?: string;
   actualEndDate?: string;
   budget?: number;
+  totalPaid?: number;
   liveUrl?: string;
   description?: string;
   createdAt: any;
@@ -79,9 +81,13 @@ interface Payment {
   id: string;
   amount: number;
   clientId: string;
+  projectId: string;
+  projectTitle?: string;
   status: 'Pending' | 'Paid' | 'Overdue' | 'Cancelled';
+  type?: 'Deposit' | 'Installment' | 'Final Payment' | 'Other';
   date: string;
   description?: string;
+  createdAt: any;
 }
 
 interface QnA {
@@ -191,6 +197,11 @@ function CRMApp() {
       unsubscribes.push(onSnapshot(tasksQuery, (snapshot) => {
         setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
       }, (error) => handleFirestoreError(error, OperationType.LIST, 'tasks')));
+
+      const paymentsQuery = query(collection(db, 'payments'), orderBy('date', 'desc'));
+      unsubscribes.push(onSnapshot(paymentsQuery, (snapshot) => {
+        setPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
+      }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments')));
 
       const sessionsQuery = query(collection(db, 'scheduledSessions'), orderBy('startTime', 'asc'));
       unsubscribes.push(onSnapshot(sessionsQuery, (snapshot) => {
@@ -337,6 +348,12 @@ function CRMApp() {
             onClick={() => setActiveTab('tasks')} 
           />
           <SidebarLink 
+            icon={<DollarSign className="h-5 w-5" />} 
+            label="Payments" 
+            active={activeTab === 'payments'} 
+            onClick={() => setActiveTab('payments')} 
+          />
+          <SidebarLink 
             icon={<Video className="h-5 w-5" />} 
             label="Sessions" 
             active={activeTab === 'sessions'} 
@@ -378,6 +395,7 @@ function CRMApp() {
           {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'tasks' && <TasksView tasks={tasks} projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
+          {activeTab === 'payments' && <PaymentsAnalyticsView payments={payments} clients={clients} projects={projects} />}
           {activeTab === 'sessions' && <SessionsView sessions={scheduledSessions} clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'messages' && <MessagesView messages={messages} clients={clients} user={user} />}
         </AnimatePresence>
@@ -783,10 +801,8 @@ function ClientsView({ clients, user, onStartCall }: { clients: Client[], user: 
             resetForm();
           }
         }}>
-          <DialogTrigger asChild>
-            <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800">
-              <Plus className="mr-2 h-4 w-4" /> Add Client
-            </Button>
+          <DialogTrigger render={<Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800" />}>
+            <Plus className="mr-2 h-4 w-4" /> Add Client
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
@@ -973,7 +989,16 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
   const [activeTab, setActiveTab] = useState('contracts');
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [qnas, setQnas] = useState<QnA[]>([]);
+  const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: 0,
+    projectId: '',
+    type: 'Installment' as const,
+    description: '',
+    date: new Date().toISOString().split('T')[0]
+  });
 
   useEffect(() => {
     const contractsQuery = query(collection(db, 'contracts'), where('clientId', '==', client.id), orderBy('createdAt', 'desc'));
@@ -986,6 +1011,11 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
       setPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
     });
 
+    const projectsQuery = query(collection(db, 'projects'), where('clientId', '==', client.id));
+    const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
+      setClientProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+    });
+
     const qnaQuery = query(collection(db, 'qna'), where('clientId', '==', client.id), orderBy('createdAt', 'desc'));
     const unsubQna = onSnapshot(qnaQuery, (snapshot) => {
       setQnas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QnA)));
@@ -994,6 +1024,7 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
     return () => {
       unsubContracts();
       unsubPayments();
+      unsubProjects();
       unsubQna();
     };
   }, [client.id]);
@@ -1009,17 +1040,54 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
     });
   };
 
-  const addPayment = async () => {
-    const amount = Number(prompt('Amount ($):'));
-    const description = prompt('Description:');
-    if (!amount) return;
-    await addDoc(collection(db, 'payments'), {
-      amount,
-      description,
-      clientId: client.id,
-      status: 'Pending',
-      date: new Date().toISOString().split('T')[0]
-    });
+  const handleAddPayment = async () => {
+    if (!paymentForm.projectId || !paymentForm.amount) return;
+    
+    const project = clientProjects.find(p => p.id === paymentForm.projectId);
+    
+    try {
+      // 1. Add payment record
+      await addDoc(collection(db, 'payments'), {
+        ...paymentForm,
+        clientId: client.id,
+        projectTitle: project?.title || 'Unknown',
+        status: 'Paid',
+        createdAt: serverTimestamp()
+      });
+
+      // 2. Update project payment status and totalPaid
+      if (project) {
+        const newTotalPaid = (project.totalPaid || 0) + paymentForm.amount;
+        const budget = project.budget || 0;
+        
+        let newPaymentStatus: Project['paymentStatus'] = 'Not Paid';
+        if (newTotalPaid >= budget && budget > 0) {
+          newPaymentStatus = 'Fully Paid';
+        } else if (newTotalPaid > 0) {
+          if (paymentForm.type === 'Deposit' && newTotalPaid < budget) {
+            newPaymentStatus = 'Deposit Received';
+          } else {
+            newPaymentStatus = 'Partially Paid';
+          }
+        }
+
+        await updateDoc(doc(db, 'projects', project.id), {
+          totalPaid: newTotalPaid,
+          paymentStatus: newPaymentStatus
+        });
+      }
+
+      setIsAddPaymentOpen(false);
+      setPaymentForm({
+        amount: 0,
+        projectId: '',
+        type: 'Installment',
+        description: '',
+        date: new Date().toISOString().split('T')[0]
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'payments');
+    }
   };
 
   const addQna = async () => {
@@ -1081,13 +1149,70 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
           <TabsContent value="payments" className="space-y-4 py-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-medium">Payment Records</h3>
-              <Button size="sm" onClick={addPayment}><Plus className="h-4 w-4 mr-1" /> Add</Button>
+              <Dialog open={isAddPaymentOpen} onOpenChange={setIsAddPaymentOpen}>
+                <DialogTrigger render={<Button size="sm" className="bg-slate-900 text-white" />}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Payment
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Record Payment</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="grid gap-2">
+                      <Label>Project</Label>
+                      <Select value={paymentForm.projectId} onValueChange={(v) => setPaymentForm({ ...paymentForm, projectId: v })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select project" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {clientProjects.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.title} (${p.budget})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Amount ($)</Label>
+                        <Input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Type</Label>
+                        <Select value={paymentForm.type} onValueChange={(v: any) => setPaymentForm({ ...paymentForm, type: v })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Deposit">Deposit</SelectItem>
+                            <SelectItem value="Installment">Installment</SelectItem>
+                            <SelectItem value="Final Payment">Final Payment</SelectItem>
+                            <SelectItem value="Other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Date</Label>
+                      <Input type="date" value={paymentForm.date} onChange={e => setPaymentForm({ ...paymentForm, date: e.target.value })} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Description</Label>
+                      <Input value={paymentForm.description} onChange={e => setPaymentForm({ ...paymentForm, description: e.target.value })} />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button onClick={handleAddPayment} className="bg-slate-900 text-white">Save Payment</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
             <ScrollArea className="h-[300px]">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Description</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
@@ -1095,10 +1220,16 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
                 <TableBody>
                   {payments.map(p => (
                     <TableRow key={p.id}>
-                      <TableCell>{p.description}</TableCell>
-                      <TableCell>${p.amount}</TableCell>
+                      <TableCell className="text-xs">{p.date}</TableCell>
+                      <TableCell className="text-xs font-medium">{p.projectTitle}</TableCell>
+                      <TableCell><Badge variant="ghost" className="text-[10px]">{p.type}</Badge></TableCell>
+                      <TableCell className="font-bold">${p.amount}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => deleteDoc(doc(db, 'payments', p.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                        <Button variant="ghost" size="icon" onClick={async () => {
+                          if (confirm('Delete this payment record? Project totals will not be automatically reverted.')) {
+                            await deleteDoc(doc(db, 'payments', p.id));
+                          }
+                        }}><Trash2 className="h-4 w-4 text-red-500" /></Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1145,6 +1276,7 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
     type: 'Mobile App' as const, 
     clientId: '', 
     status: 'Planning' as const,
+    paymentStatus: 'Not Paid' as const,
     startDate: '',
     estimatedEndDate: '',
     actualEndDate: '',
@@ -1190,6 +1322,7 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
       type: 'Mobile App', 
       clientId: '', 
       status: 'Planning', 
+      paymentStatus: 'Not Paid',
       startDate: '',
       estimatedEndDate: '',
       actualEndDate: '',
@@ -1206,6 +1339,7 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
       type: project.type,
       clientId: project.clientId,
       status: project.status,
+      paymentStatus: project.paymentStatus || 'Not Paid',
       startDate: project.startDate || '',
       estimatedEndDate: project.estimatedEndDate || '',
       actualEndDate: project.actualEndDate || '',
@@ -1242,10 +1376,8 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
             resetForm();
           }
         }}>
-          <DialogTrigger asChild>
-            <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800">
-              <Plus className="mr-2 h-4 w-4" /> New Project
-            </Button>
+          <DialogTrigger render={<Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800" />}>
+            <Plus className="mr-2 h-4 w-4" /> New Project
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
@@ -1305,6 +1437,20 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
                         <SelectItem value="Review">Review</SelectItem>
                         <SelectItem value="Completed">Completed</SelectItem>
                         <SelectItem value="On Hold">On Hold</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="paymentStatus">Payment Status</Label>
+                    <Select value={formData.paymentStatus} onValueChange={(v: any) => setFormData({ ...formData, paymentStatus: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payment status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Not Paid">Not Paid</SelectItem>
+                        <SelectItem value="Deposit Received">Deposit Received</SelectItem>
+                        <SelectItem value="Partially Paid">Partially Paid</SelectItem>
+                        <SelectItem value="Fully Paid">Fully Paid</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1397,20 +1543,35 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
                 </div>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center text-slate-700 font-medium">
-                  <DollarSign className="mr-1 h-3 w-3" />
-                  <span>{project.budget?.toLocaleString() || '0'}</span>
+                <div className="flex flex-col">
+                  <div className="flex items-center text-slate-700 font-medium">
+                    <DollarSign className="mr-1 h-3 w-3" />
+                    <span>{project.budget?.toLocaleString() || '0'}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Paid: ${project.totalPaid?.toLocaleString() || '0'}
+                  </div>
                 </div>
-                {project.liveUrl && (
-                  <a 
-                    href={project.liveUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-[10px] text-blue-600 hover:underline font-medium"
-                  >
-                    View Live
-                  </a>
-                )}
+                <div className="flex flex-col items-end">
+                  <Badge variant="outline" className={
+                    project.paymentStatus === 'Fully Paid' ? 'bg-green-50 text-green-700 border-green-200' :
+                    project.paymentStatus === 'Partially Paid' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                    project.paymentStatus === 'Deposit Received' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                    'bg-slate-50 text-slate-500 border-slate-200'
+                  }>
+                    {project.paymentStatus || 'Not Paid'}
+                  </Badge>
+                  {project.liveUrl && (
+                    <a 
+                      href={project.liveUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-blue-600 hover:underline font-medium mt-1"
+                    >
+                      View Live
+                    </a>
+                  )}
+                </div>
               </div>
               <div className="flex justify-end space-x-2 pt-2">
                 <Button 
@@ -1496,10 +1657,8 @@ function TasksView({ tasks, projects, clients, user, onStartCall }: { tasks: Tas
           <p className="text-slate-500">Action items and project milestones.</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-slate-900 text-white hover:bg-slate-800">
-              <Plus className="mr-2 h-4 w-4" /> Add Task
-            </Button>
+          <DialogTrigger render={<Button className="bg-slate-900 text-white hover:bg-slate-800" />}>
+            <Plus className="mr-2 h-4 w-4" /> Add Task
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
@@ -1656,6 +1815,221 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onSta
   );
 }
 
+function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Payment[], clients: Client[], projects: Project[] }) {
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [linkForm, setLinkForm] = useState({
+    clientId: '',
+    projectId: '',
+    paythenUrl: '',
+    method: 'email' as 'email' | 'sms'
+  });
+
+  const totalRevenue = payments
+    .filter(p => p.status === 'Paid')
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const pendingRevenue = payments
+    .filter(p => p.status === 'Pending')
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const handleSendLink = () => {
+    const client = clients.find(c => c.id === linkForm.clientId);
+    if (!client || !linkForm.paythenUrl) return;
+
+    const message = `Hi ${client.name}, here is the payment link for your project: ${linkForm.paythenUrl}`;
+    
+    if (linkForm.method === 'email') {
+      window.location.href = `mailto:${client.email}?subject=Payment Link&body=${encodeURIComponent(message)}`;
+    } else {
+      window.location.href = `sms:${client.phone}?body=${encodeURIComponent(message)}`;
+    }
+    setIsLinkDialogOpen(false);
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="space-y-8"
+    >
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Payments & Analytics</h1>
+          <p className="text-slate-500">Track revenue and manage client payment links.</p>
+        </div>
+        <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+          <DialogTrigger render={<Button className="bg-slate-900 text-white hover:bg-slate-800" />}>
+            <Send className="mr-2 h-4 w-4" /> Send Payment Link
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Send Paythen Link</DialogTitle>
+              <DialogDescription>Send a payment link to your client via email or text.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Client</Label>
+                <Select value={linkForm.clientId} onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Paythen URL</Label>
+                <Input 
+                  placeholder="https://paythen.co/..." 
+                  value={linkForm.paythenUrl} 
+                  onChange={e => setLinkForm({ ...linkForm, paythenUrl: e.target.value })} 
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Method</Label>
+                <Select value={linkForm.method} onValueChange={(v: any) => setLinkForm({ ...linkForm, method: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="sms">Text (SMS)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={handleSendLink} className="bg-slate-900 text-white w-full">
+                Send via {linkForm.method === 'email' ? 'Email' : 'SMS'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </header>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Revenue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-slate-900">${totalRevenue.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Pending Revenue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-blue-600">${pendingRevenue.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Transactions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-slate-900">{payments.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Paid Projects</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-green-600">{projects.filter(p => p.paymentStatus === 'Fully Paid').length}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-200 shadow-sm overflow-hidden">
+        <Table>
+          <TableHeader className="bg-slate-50">
+            <TableRow>
+              <TableHead className="font-semibold">Date</TableHead>
+              <TableHead className="font-semibold">Client</TableHead>
+              <TableHead className="font-semibold">Project</TableHead>
+              <TableHead className="font-semibold">Type</TableHead>
+              <TableHead className="font-semibold">Amount</TableHead>
+              <TableHead className="font-semibold">Status</TableHead>
+              <TableHead className="text-right font-semibold">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {payments.map(payment => {
+              const client = clients.find(c => c.id === payment.clientId);
+              return (
+                <TableRow key={payment.id} className="hover:bg-slate-50/50 transition-colors">
+                  <TableCell className="text-xs text-slate-500">{payment.date}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="font-medium text-slate-900">{client?.name || 'Unknown'}</span>
+                      <span className="text-[10px] text-slate-500">{client?.company}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-600">{payment.projectTitle}</TableCell>
+                  <TableCell>
+                    <Badge variant="ghost" className="text-[10px] uppercase">{payment.type}</Badge>
+                  </TableCell>
+                  <TableCell className="font-bold text-slate-900">${payment.amount.toLocaleString()}</TableCell>
+                  <TableCell>
+                    <Badge className={
+                      payment.status === 'Paid' ? 'bg-green-100 text-green-700' :
+                      payment.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-red-100 text-red-700'
+                    }>
+                      {payment.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={async () => {
+                        if (confirm('Delete this payment record? This will also update the project total.')) {
+                          const project = projects.find(p => p.id === payment.projectId);
+                          if (project) {
+                            const newTotal = Math.max(0, (project.totalPaid || 0) - payment.amount);
+                            let newStatus: Project['paymentStatus'] = project.paymentStatus;
+                            
+                            if (newTotal <= 0) newStatus = 'Not Paid';
+                            else if (newTotal < (project.budget || 0)) newStatus = 'Partially Paid';
+                            else newStatus = 'Fully Paid';
+
+                            await updateDoc(doc(db, 'projects', project.id), {
+                              totalPaid: newTotal,
+                              paymentStatus: newStatus
+                            });
+                          }
+                          await deleteDoc(doc(db, 'payments', payment.id));
+                        }
+                      }}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {payments.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-12 text-slate-400">
+                  No payment records found.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </motion.div>
+  );
+}
+
 function SessionsView({ sessions, clients, user, onStartCall, isClientView = false }: { 
   sessions: ScheduledSession[], 
   clients: Client[], 
@@ -1716,10 +2090,8 @@ function SessionsView({ sessions, clients, user, onStartCall, isClientView = fal
           <p className="text-slate-500">Schedule and manage live video sessions.</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-slate-900 text-white hover:bg-slate-800">
-              <Calendar className="mr-2 h-4 w-4" /> Schedule Session
-            </Button>
+          <DialogTrigger render={<Button className="bg-slate-900 text-white hover:bg-slate-800" />}>
+            <Calendar className="mr-2 h-4 w-4" /> Schedule Session
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -2137,8 +2509,11 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {projects.map(project => (
                 <Card key={project.id} className="border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                  <div className="h-32 bg-slate-100 flex items-center justify-center border-b border-slate-200">
+                  <div className="h-32 bg-slate-100 flex items-center justify-center border-b border-slate-200 relative">
                     <Briefcase className="h-12 w-12 text-slate-300" />
+                    <Badge className="absolute top-2 right-2 bg-white/80 backdrop-blur-sm text-slate-900 border-slate-200">
+                      {project.paymentStatus || 'Not Paid'}
+                    </Badge>
                   </div>
                   <CardHeader>
                     <div className="flex items-center justify-between mb-2">
@@ -2149,11 +2524,16 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                   </CardHeader>
                   <CardContent className="flex-1 space-y-4">
                     <p className="text-sm text-slate-500 line-clamp-2">{project.description || 'No description provided.'}</p>
+                    <div className="flex items-center justify-between text-xs font-medium pt-2 border-t border-slate-50">
+                      <span className="text-slate-500">Budget: ${project.budget?.toLocaleString()}</span>
+                      <span className="text-green-600">Paid: ${project.totalPaid?.toLocaleString() || '0'}</span>
+                    </div>
                     {project.liveUrl && (
-                      <Button asChild className="w-full bg-slate-900 text-white hover:bg-slate-800">
-                        <a href={project.liveUrl} target="_blank" rel="noopener noreferrer">
-                          View Live Product
-                        </a>
+                      <Button 
+                        render={<a href={project.liveUrl} target="_blank" rel="noopener noreferrer" />} 
+                        className="w-full bg-slate-900 text-white hover:bg-slate-800 mt-2"
+                      >
+                        View Live Product
                       </Button>
                     )}
                   </CardContent>
@@ -2187,8 +2567,8 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                       </TableCell>
                       <TableCell className="text-right">
                         {contract.fileUrl && (
-                          <Button variant="ghost" size="sm" asChild>
-                            <a href={contract.fileUrl} target="_blank" rel="noopener noreferrer">View PDF</a>
+                          <Button variant="ghost" size="sm" render={<a href={contract.fileUrl} target="_blank" rel="noopener noreferrer" />}>
+                            View PDF
                           </Button>
                         )}
                       </TableCell>
@@ -2209,18 +2589,20 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Amount</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Amount</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {payments.map(payment => (
                     <TableRow key={payment.id}>
-                      <TableCell className="font-medium">{payment.description}</TableCell>
-                      <TableCell className="font-bold">${payment.amount.toLocaleString()}</TableCell>
                       <TableCell className="text-slate-500 text-sm">{payment.date}</TableCell>
+                      <TableCell className="font-medium">{payment.projectTitle}</TableCell>
+                      <TableCell><Badge variant="ghost" className="text-[10px]">{payment.type}</Badge></TableCell>
+                      <TableCell className="font-bold">${payment.amount.toLocaleString()}</TableCell>
                       <TableCell>
                         <Badge className={
                           payment.status === 'Paid' ? 'bg-green-100 text-green-700' :
@@ -2234,7 +2616,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                   ))}
                   {payments.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-slate-400">No payment records found.</TableCell>
+                      <TableCell colSpan={5} className="text-center py-8 text-slate-400">No payment records found.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
