@@ -32,6 +32,7 @@
         "estimatedEndDate": { "type": "string", "format": "date", "description": "Estimated project end date" },
         "actualEndDate": { "type": "string", "format": "date", "description": "Actual project end date" },
         "budget": { "type": "number", "description": "Project budget" },
+        "liveUrl": { "type": "string", "description": "URL to the live product (website or app)" },
         "description": { "type": "string", "description": "Project description" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
         "createdBy": { "type": "string", "description": "UID of the user who created this project" }
@@ -52,11 +53,100 @@
         "createdBy": { "type": "string", "description": "UID of the user who created this task" }
       },
       "required": ["title", "projectId", "status", "createdAt", "createdBy"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Video call signaling data for WebRTC",
+      "type": "object",
+      "properties": {
+        "offer": { "type": "object", "description": "WebRTC offer SDP" },
+        "answer": { "type": "object", "description": "WebRTC answer SDP" },
+        "clientId": { "type": "string", "description": "ID of the client associated with the call" },
+        "status": { "type": "string", "enum": ["pending", "active", "ended"], "description": "Current call status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "UID of the user who created this call" }
+      },
+      "required": ["status", "createdAt", "createdBy"]
+    },
+    "Contract": {
+      "title": "Contract",
+      "description": "Legal agreement with a client",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "clientId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Draft", "Sent", "Signed", "Expired"] },
+        "fileUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "clientId", "status", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Financial transaction record",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "clientId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Paid", "Overdue", "Cancelled"] },
+        "date": { "type": "string", "format": "date" },
+        "description": { "type": "string" }
+      },
+      "required": ["amount", "clientId", "status", "date"]
+    },
+    "QnA": {
+      "title": "QnA",
+      "description": "Question and Answer for client support",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "clientId": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["question", "clientId", "createdAt"]
+    },
+    "ScheduledSession": {
+      "title": "Scheduled Session",
+      "description": "A scheduled live video session",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string", "description": "ID of the client" },
+        "clientName": { "type": "string", "description": "Name of the client" },
+        "title": { "type": "string", "description": "Session title" },
+        "startTime": { "type": "string", "format": "date-time", "description": "Scheduled start time" },
+        "duration": { "type": "number", "description": "Duration in minutes" },
+        "status": { "type": "string", "enum": ["Scheduled", "Active", "Completed", "Cancelled"], "description": "Current status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "UID of the user who created this session" }
+      },
+      "required": ["clientId", "title", "startTime", "status", "createdAt", "createdBy"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message between client and admin",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "Message content" },
+        "senderId": { "type": "string", "description": "UID of the sender" },
+        "senderName": { "type": "string", "description": "Name of the sender" },
+        "clientId": { "type": "string", "description": "ID of the associated client/conversation" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent" },
+        "read": { "type": "boolean", "description": "Whether the message has been read" }
+      },
+      "required": ["text", "senderId", "clientId", "timestamp"]
     }
   },
   "firestore": {
     "/clients/{clientId}": { "schema": "Client", "description": "Collection of clients" },
     "/projects/{projectId}": { "schema": "Project", "description": "Collection of projects" },
-    "/tasks/{taskId}": { "schema": "Task", "description": "Collection of tasks" }
+    "/tasks/{taskId}": { "schema": "Task", "description": "Collection of tasks" },
+    "/calls/{callId}": { "schema": "Call", "description": "Collection of video calls" },
+    "/contracts/{contractId}": { "schema": "Contract", "description": "Collection of contracts" },
+    "/payments/{paymentId}": { "schema": "Payment", "description": "Collection of payments" },
+    "/qna/{qnaId}": { "schema": "QnA", "description": "Collection of Q&A items" },
+    "/scheduledSessions/{sessionId}": { "schema": "ScheduledSession", "description": "Collection of scheduled video sessions" },
+    "/messages/{messageId}": { "schema": "Message", "description": "Collection of chat messages" }
   }
 }

@@ -43,6 +43,15 @@ service cloud.firestore {
     //   - createdAt: timestamp/string (required)
     //   - createdBy: string (required, UID)
     //
+    // Collection: calls
+    // Fields:
+    //   - offer: object (optional)
+    //   - answer: object (optional)
+    //   - clientId: string (optional)
+    //   - status: string (required, enum: pending, active, ended)
+    //   - createdAt: timestamp/string (required)
+    //   - createdBy: string (required, UID)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -110,28 +119,81 @@ service cloud.firestore {
         data.status in ['Todo', 'In Progress', 'Done'];
     }
 
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          request.auth.token.email == "allie.pakele@gmail.com");
+    }
+
+    function isClient(clientId) {
+      let clientData = get(/databases/$(database)/documents/clients/$(clientId)).data;
+      return isAuthenticated() && 
+        (clientData.uid == request.auth.uid || clientData.email == request.auth.token.email);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow write: if isAdmin();
+    }
+
     match /clients/{clientId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidClient(request.resource.data) && uidUnchanged();
-      allow update: if isAuthenticated() && isValidClient(request.resource.data) && uidNotModified();
-      allow delete: if isAuthenticated();
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email));
+      allow delete: if isAdmin();
     }
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidProject(request.resource.data) && uidUnchanged();
-      allow update: if isAuthenticated() && isValidProject(request.resource.data) && uidNotModified();
-      allow delete: if isAuthenticated();
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow write: if isAdmin();
     }
 
     match /tasks/{taskId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidTask(request.resource.data) && uidUnchanged();
-      allow update: if isAuthenticated() && isValidTask(request.resource.data) && uidNotModified();
-      allow delete: if isAuthenticated();
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow write: if isAdmin();
+    }
+
+    match /contracts/{contractId} {
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow write: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow write: if isAdmin();
+    }
+
+    match /qna/{qnaId} {
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    match /calls/{callId} {
+      allow read, write: if isAuthenticated();
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isAuthenticated();
+      }
+      match /calleeCandidates/{candidateId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    match /scheduledSessions/{sessionId} {
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow delete: if isAdmin();
+    }
+
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow create: if isAuthenticated() && (isAdmin() || isClient(request.resource.data.clientId));
+      allow update: if isAuthenticated() && isAdmin(); // Only admin can mark as read for now or similar
+      allow delete: if isAdmin();
     }
 
     match /test/connection {
