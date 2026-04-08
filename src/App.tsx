@@ -515,7 +515,15 @@ function AuthScreen() {
 
         <Button 
           variant="outline" 
-          onClick={signIn} 
+          onClick={async () => {
+            setError(null);
+            try {
+              await signIn();
+            } catch (err: any) {
+              console.error("Google Sign-In Error:", err);
+              setError(err.message || "Failed to sign in with Google. Please ensure Google login is enabled in your Firebase console and that the domain is allowlisted.");
+            }
+          }} 
           className="w-full border-slate-200 py-4 hover:bg-slate-50"
         >
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="mr-2 h-4 w-4" />
