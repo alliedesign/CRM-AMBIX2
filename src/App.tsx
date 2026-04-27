@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send } from 'lucide-react';
+import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Types
@@ -246,9 +246,7 @@ function CRMApp() {
           action: {
             label: 'View',
             onClick: () => {
-              // Logic to open notifications dialog or specific tab
-              const trigger = document.querySelector('[label="Notifications"]') as HTMLElement;
-              if (trigger) trigger.click();
+              setActiveTab('notifications');
             }
           }
         });
@@ -484,6 +482,8 @@ Client: ____________________`,
           sendNotification={sendNotification}
           onStartCall={setActiveCall}
           incomingCall={incomingCall}
+          activeTab={activeTab === 'dashboard' ? 'overview' : activeTab} // Safely map dashboard to overview for client
+          setActiveTab={setActiveTab}
         />
         {activeCall && (
           <VideoCall 
@@ -513,6 +513,13 @@ Client: ____________________`,
             label="Dashboard" 
             active={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')} 
+          />
+          <SidebarLink 
+            icon={<Bell className="h-5 w-5" />} 
+            label="Notifications" 
+            active={activeTab === 'notifications'} 
+            onClick={() => setActiveTab('notifications')} 
+            badge={notifications.filter(n => !n.read).length}
           />
           <SidebarLink 
             icon={<Users className="h-5 w-5" />} 
@@ -616,6 +623,7 @@ Client: ____________________`,
           )}
 
           {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} />}
+          {activeTab === 'notifications' && <NotificationsView notifications={notifications} />}
           {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'tasks' && <TasksView tasks={tasks} projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
@@ -1041,18 +1049,27 @@ function AuthScreen() {
   );
 }
 
-function SidebarLink({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
+function SidebarLink({ icon, label, active, onClick, badge }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, badge?: number }) {
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
         active 
           ? 'bg-slate-900 text-white shadow-sm' 
           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
       }`}
     >
-      <span className="mr-3">{icon}</span>
-      {label}
+      <div className="flex items-center">
+        <span className="mr-3">{icon}</span>
+        {label}
+      </div>
+      {badge !== undefined && badge > 0 && (
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+          active ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'
+        }`}>
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -1112,6 +1129,69 @@ function NotificationBell({ notifications }: { notifications: Notification[] }) 
         </ScrollArea>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function NotificationsView({ notifications }: { notifications: Notification[] }) {
+  const markAsRead = async (id: string) => {
+    await updateDoc(doc(db, 'notifications', id), { read: true });
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="space-y-8 max-w-4xl mx-auto"
+    >
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Notifications</h1>
+        <p className="text-slate-500">Stay updated with your latest activity.</p>
+      </header>
+
+      <div className="grid gap-4">
+        {notifications.length === 0 ? (
+          <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed border-2">
+            <div className="mb-4 rounded-full bg-slate-50 p-4">
+              <Bell className="h-8 w-8 text-slate-300" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">No Notifications</h3>
+            <p className="text-slate-500">When you have updates, they will appear here.</p>
+          </Card>
+        ) : (
+          notifications.map(n => (
+            <Card 
+              key={n.id} 
+              className={`transition-all cursor-pointer hover:shadow-md ${n.read ? 'bg-white opacity-80' : 'bg-white border-l-4 border-l-blue-500'}`}
+              onClick={() => markAsRead(n.id)}
+            >
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1 pr-4">
+                    <div className="flex items-center space-x-2">
+                      <Badge variant={n.read ? 'outline' : 'default'} className="text-[10px] uppercase">
+                        {n.type}
+                      </Badge>
+                      {!n.read && (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px]">NEW</Badge>
+                      )}
+                    </div>
+                    <h4 className="text-base font-bold text-slate-900">{n.title}</h4>
+                    <p className="text-sm text-slate-500">{n.message}</p>
+                  </div>
+                  <div className="flex flex-col items-end text-xs text-slate-400 shrink-0">
+                    <div className="flex items-center">
+                      <Clock className="h-3 w-3 mr-1" />
+                      {n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString() : 'Just now'}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+    </motion.div>
   );
 }
 
@@ -1772,7 +1852,9 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
                       <TableCell><Badge variant={c.status === 'Signed' ? 'default' : 'outline'}>{c.status}</Badge></TableCell>
                       <TableCell className="text-right space-x-1">
                         <Dialog>
-                          <DialogTrigger render={<Button variant="ghost" size="icon"><Search className="h-4 w-4" /></Button>} />
+                          <DialogTrigger asChild>
+                            <Button variant="ghost" size="icon"><Search className="h-4 w-4" /></Button>
+                          </DialogTrigger>
                           <DialogContent className="sm:max-w-[700px] max-h-[80vh] flex flex-col">
                             <DialogHeader>
                               <DialogTitle>{c.title}</DialogTitle>
@@ -1814,8 +1896,10 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-medium">Payment Records</h3>
               <Dialog open={isAddPaymentOpen} onOpenChange={setIsAddPaymentOpen}>
-                <DialogTrigger render={<Button size="sm" className="bg-slate-900 text-white" />}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Payment
+                <DialogTrigger asChild>
+                  <Button size="sm" className="bg-slate-900 text-white">
+                    <Plus className="h-4 w-4 mr-1" /> Add Payment
+                  </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
@@ -1913,7 +1997,15 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
           <TabsContent value="vitals" className="space-y-4 py-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-medium">Digital Vitals</h3>
-              <Button size="sm" onClick={() => setIsAddVitalOpen(!isAddVitalOpen)} className="bg-slate-900 text-white">
+              <Button 
+                type="button"
+                size="sm" 
+                onClick={() => {
+                  console.log('Toggling vital form:', !isAddVitalOpen);
+                  setIsAddVitalOpen(!isAddVitalOpen);
+                }} 
+                className="bg-slate-900 text-white"
+              >
                 {isAddVitalOpen ? 'Cancel' : <><Plus className="h-4 w-4 mr-1" /> Request Info</>}
               </Button>
             </div>
@@ -1957,7 +2049,17 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
                       onChange={(e) => setVitalForm({...vitalForm, instructions: e.target.value})}
                     />
                   </div>
-                  <Button size="sm" className="w-full" onClick={handleAddVital}>Send Request</Button>
+                  <Button 
+                    type="button"
+                    size="sm" 
+                    className="w-full" 
+                    onClick={() => {
+                      console.log('Clicked Send Request');
+                      handleAddVital();
+                    }}
+                  >
+                    Send Request
+                  </Button>
                 </div>
               </Card>
             )}
@@ -3242,7 +3344,7 @@ function ScheduleSessionDialog({ clientId, clientName, onScheduled }: { clientId
   );
 }
 
-function ClientPortal({ user, client, projects, contracts, payments, vitals, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall }: { 
+function ClientPortal({ user, client, projects, contracts, payments, vitals, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall, activeTab, setActiveTab }: { 
   user: User, 
   client: Client | null, 
   projects: Project[], 
@@ -3254,9 +3356,10 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
   notifications: Notification[],
   sendNotification: any,
   onStartCall: (callData: any) => void,
-  incomingCall?: any
+  incomingCall?: any,
+  activeTab: string,
+  setActiveTab: (tab: string) => void
 }) {
-  const [activeTab, setActiveTab] = useState('overview');
 
   if (!client) {
     return (
@@ -3345,6 +3448,14 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <TabsList className="bg-white border border-slate-200 p-1 rounded-xl shadow-sm">
             <TabsTrigger value="overview" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Overview</TabsTrigger>
+            <TabsTrigger value="notifications" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white flex items-center">
+              Notifications
+              {notifications.filter(n => !n.read).length > 0 && (
+                <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-white text-[10px] font-bold group-data-[state=active]:bg-white group-data-[state=active]:text-slate-900">
+                  {notifications.filter(n => !n.read).length}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="projects" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Products</TabsTrigger>
             <TabsTrigger value="contracts" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Contracts</TabsTrigger>
             <TabsTrigger value="payments" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Payments</TabsTrigger>
@@ -3352,6 +3463,10 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
             <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Sessions</TabsTrigger>
             <TabsTrigger value="messages" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Messages</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="notifications" className="space-y-8">
+            <NotificationsView notifications={notifications} />
+          </TabsContent>
 
           <TabsContent value="overview" className="space-y-8">
             {incomingCall && (
