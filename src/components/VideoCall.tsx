@@ -26,20 +26,71 @@ interface VideoCallProps {
 
 export function VideoCall({ clientName, onClose, callId: initialCallId, sessionId, isAdmin = false, onCallCreated }: VideoCallProps & { sessionId?: string }) {
   const roomName = initialCallId || sessionId || `ambix-allie-session-${Math.random().toString(36).substring(7)}`;
+  const jitsiContainerRef = useRef<HTMLDivElement>(null);
+  const jitsiApiRef = useRef<any>(null);
   
   // Support for Jitsi as a Service (JaaS)
   const appId = (import.meta as any).env.VITE_JITSI_APP_ID;
   const domain = appId ? '8x8.vc' : 'meet.jit.si';
-  const roomPath = appId ? `${appId}/${roomName}` : roomName;
-
+  
   useEffect(() => {
     if (!initialCallId && roomName && onCallCreated && isAdmin) {
       onCallCreated(roomName);
     }
   }, [initialCallId, roomName, onCallCreated, isAdmin]);
 
-  const displayName = isAdmin ? 'Allie (Host)' : (clientName || 'Client');
-  const jitsiUrl = `https://${domain}/${roomPath}#userInfo.displayName="${displayName}"&config.startWithAudioMuted=false&config.startWithVideoMuted=false&interfaceConfig.TOOLBAR_BUTTONS=["microphone","camera","closedcaptions","desktop","fullscreen","fittowindow","hangup","profile","chat","recording","livestreaming","etherpad","sharedvideo","settings","raisehand","videoquality","filmstrip","invite","feedback","stats","shortcuts","tileview","videobackground","help","mute-everyone","videopreview","download","localrecording","selfview"]`;
+  useEffect(() => {
+    const displayName = isAdmin ? 'Allie (Host)' : (clientName || 'Client');
+    const script = document.createElement('script');
+    script.src = `https://${domain}/external_api.js`;
+    script.async = true;
+    
+    script.onload = () => {
+      if (jitsiContainerRef.current) {
+        // Clear previous instance if any
+        if (jitsiApiRef.current) {
+          jitsiApiRef.current.dispose();
+        }
+
+        const options = {
+          roomName: appId ? `${appId}/${roomName}` : roomName,
+          width: '100%',
+          height: '100%',
+          parentNode: jitsiContainerRef.current,
+          configOverwrite: {
+            prejoinPageEnabled: false,
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            disableModeratorIndicator: false,
+            enableLobbyChat: true,
+          },
+          interfaceConfigOverwrite: {
+            TILE_VIEW_MAX_COLUMNS: 2,
+          },
+          userInfo: {
+            displayName: displayName
+          }
+        };
+
+        jitsiApiRef.current = new (window as any).JitsiMeetExternalAPI(domain, options);
+
+        // Add event listeners
+        jitsiApiRef.current.addEventListeners({
+          readyToClose: () => onClose(),
+          videoConferenceTerminated: () => onClose()
+        });
+      }
+    };
+
+    document.body.appendChild(script);
+
+    return () => {
+      if (jitsiApiRef.current) {
+        jitsiApiRef.current.dispose();
+      }
+      document.body.removeChild(script);
+    };
+  }, [domain, roomName, appId, isAdmin, clientName, onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-0 sm:p-4">
@@ -55,7 +106,7 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
               </CardTitle>
               <div className="flex items-center space-x-2">
                 <Badge variant="outline" className="text-[10px] uppercase tracking-wider border-slate-700 text-slate-400">
-                  {isAdmin ? 'HOST' : 'CLIENT'} PORTAL
+                  {isAdmin ? 'HOST' : 'CLIENT'} PORTAL {appId ? '(PRIVATE JAAS)' : '(SECURE PUBLIC)'}
                 </Badge>
               </div>
             </div>
@@ -68,12 +119,7 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
         </CardHeader>
 
         <CardContent className="p-0 flex-1 relative bg-black">
-          <iframe 
-            src={jitsiUrl}
-            allow="camera; microphone; display-capture; autoplay; clipboard-write"
-            className="w-full h-full border-none"
-            title="Live Session"
-          />
+          <div ref={jitsiContainerRef} className="w-full h-full" />
         </CardContent>
       </Card>
     </div>
