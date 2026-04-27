@@ -48,21 +48,44 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
   const servers = {
     iceServers: [
       {
-        urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'],
+        urls: [
+          'stun:stun.l.google.com:19302',
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302',
+          'stun:stun3.l.google.com:19302',
+          'stun:stun4.l.google.com:19302',
+        ],
       },
     ],
     iceCandidatePoolSize: 10,
   };
 
   useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream, isVideoOff]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch(e => console.error('Error playing remote video:', e));
+    }
+  }, [remoteStream]);
+
+  useEffect(() => {
     const init = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+          }, 
+          audio: true 
+        });
         setLocalStream(stream);
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-        }
-
+        
         if (initialCallId) {
           joinCall(initialCallId, stream);
         }
@@ -108,11 +131,13 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
 
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
+    pc.oniceconnectionstatechange = () => {
+      console.log('Caller ICE state:', pc.iceConnectionState);
+    };
+
     pc.ontrack = (event) => {
+      console.log('Caller got remote track:', event.streams[0]);
       setRemoteStream(event.streams[0]);
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
       setStatus('connected');
     };
 
@@ -183,11 +208,13 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
 
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
+    pc.oniceconnectionstatechange = () => {
+      console.log('Joiner ICE state:', pc.iceConnectionState);
+    };
+
     pc.ontrack = (event) => {
+      console.log('Joiner got remote track:', event.streams[0]);
       setRemoteStream(event.streams[0]);
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
       setStatus('connected');
     };
 
