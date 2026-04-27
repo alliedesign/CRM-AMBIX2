@@ -28,6 +28,8 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   const roomName = initialCallId || sessionId || `ambix-allie-session-${Math.random().toString(36).substring(7)}`;
   const jitsiContainerRef = useRef<HTMLDivElement>(null);
   const jitsiApiRef = useRef<any>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Support for Jitsi as a Service (JaaS)
   const appId = (import.meta as any).env.VITE_JITSI_APP_ID;
@@ -40,6 +42,34 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   }, [initialCallId, roomName, onCallCreated, isAdmin]);
 
   useEffect(() => {
+    const fetchToken = async () => {
+      try {
+        const response = await fetch('/api/jitsi-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomName,
+            userName: isAdmin ? 'Allie (Host)' : (clientName || 'Client'),
+            isAdmin
+          })
+        });
+        const data = await response.json();
+        if (data.token) {
+          setToken(data.token);
+        }
+      } catch (error) {
+        console.error('Error fetching Jitsi token:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchToken();
+  }, [roomName, clientName, isAdmin]);
+
+  useEffect(() => {
+    if (isLoading) return;
+
     const displayName = isAdmin ? 'Allie (Host)' : (clientName || 'Client');
     const script = document.createElement('script');
     script.src = `https://${domain}/external_api.js`;
@@ -57,6 +87,7 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
           width: '100%',
           height: '100%',
           parentNode: jitsiContainerRef.current,
+          jwt: token, // PASS THE MODERATOR TOKEN HERE
           configOverwrite: {
             prejoinPageEnabled: false,
             startWithAudioMuted: false,
@@ -88,9 +119,11 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
       if (jitsiApiRef.current) {
         jitsiApiRef.current.dispose();
       }
-      document.body.removeChild(script);
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
     };
-  }, [domain, roomName, appId, isAdmin, clientName, onClose]);
+  }, [domain, roomName, appId, isAdmin, clientName, onClose, token, isLoading]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-0 sm:p-4">
