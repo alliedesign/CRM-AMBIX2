@@ -24,9 +24,17 @@ interface VideoCallProps {
   onCallCreated?: (callId: string) => void;
 }
 
-export function VideoCall({ clientName, onClose, callId: initialCallId, isAdmin = false }: VideoCallProps) {
-  const roomName = initialCallId || `ambix-allie-session-${Math.random().toString(36).substring(7)}`;
-  const jitsiUrl = `https://meet.jit.si/${roomName}#config.startWithAudioMuted=false&config.startWithVideoMuted=false&interfaceConfig.TOOLBAR_BUTTONS=["microphone","camera","closedcaptions","desktop","fullscreen","fittowindow","hangup","profile","chat","recording","livestreaming","etherpad","sharedvideo","settings","raisehand","videoquality","filmstrip","invite","feedback","stats","shortcuts","tileview","videobackground","help","mute-everyone","videopreview","download","localrecording","selfview"]`;
+export function VideoCall({ clientName, onClose, callId: initialCallId, sessionId, isAdmin = false, onCallCreated }: VideoCallProps & { sessionId?: string }) {
+  const roomName = initialCallId || sessionId || `ambix-allie-session-${Math.random().toString(36).substring(7)}`;
+  
+  useEffect(() => {
+    if (!initialCallId && roomName && onCallCreated && isAdmin) {
+      onCallCreated(roomName);
+    }
+  }, [initialCallId, roomName, onCallCreated, isAdmin]);
+
+  const displayName = isAdmin ? 'Allie (Host)' : (clientName || 'Client');
+  const jitsiUrl = `https://meet.jit.si/${roomName}#userInfo.displayName="${displayName}"&config.startWithAudioMuted=false&config.startWithVideoMuted=false&interfaceConfig.TOOLBAR_BUTTONS=["microphone","camera","closedcaptions","desktop","fullscreen","fittowindow","hangup","profile","chat","recording","livestreaming","etherpad","sharedvideo","settings","raisehand","videoquality","filmstrip","invite","feedback","stats","shortcuts","tileview","videobackground","help","mute-everyone","videopreview","download","localrecording","selfview"]`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-0 sm:p-4">

@@ -207,6 +207,18 @@ function CRMApp() {
       } catch (error) {
         console.error('Error updating session with callId:', error);
       }
+    } else if (activeCall?.clientId) {
+      // Ad-hoc call: find the client's user ID and send a notification
+      const client = clients.find(c => c.id === activeCall.clientId);
+      if (client && client.uid) {
+        sendNotification(
+          client.uid,
+          'Incoming Live Session',
+          `${user?.displayName || 'Allie'} is inviting you to a live session. Click to join!`,
+          'session',
+          `?callId=${callId}`
+        );
+      }
     }
   };
   const [incomingCall, setIncomingCall] = useState<any>(null);
@@ -505,6 +517,7 @@ Client: ____________________`,
             clientId={activeCall.clientId} 
             clientName={activeCall.clientName} 
             callId={activeCall.callId}
+            sessionId={activeCall.sessionId}
             user={user} 
             onClose={() => setActiveCall(null)} 
             isAdmin={role === 'admin'}
@@ -659,6 +672,7 @@ Client: ____________________`,
           clientId={activeCall.clientId} 
           clientName={activeCall.clientName} 
           callId={activeCall.callId}
+          sessionId={activeCall.sessionId}
           user={user} 
           onClose={() => setActiveCall(null)} 
           isAdmin={role === 'admin'}
