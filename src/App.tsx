@@ -5,11 +5,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where, limit, Timestamp } from 'firebase/firestore';
 import { auth, db, signIn, logOut, signUpWithEmail, signInWithEmail, resetPassword, OperationType, handleFirestoreError } from './firebase';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
 import { VideoCall } from './components/VideoCall';
+
+const ADMIN_EMAILS = ['allie.pakele@gmail.com', 'allie@vibesandvolumes.com'];
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -215,7 +218,7 @@ function CRMApp() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        if (currentUser.email === 'allie.pakele@gmail.com' || currentUser.email === 'allie@vibesandvolumes.com') {
+        if (ADMIN_EMAILS.includes(currentUser.email || '')) {
           setRole('admin');
         } else {
           setRole('client');
@@ -254,9 +257,12 @@ function CRMApp() {
   useEffect(() => {
     if (!user || !role) return;
 
+    // Only listen for calls from the last 10 minutes to avoid stale calls
+    const tenMinutesAgo = Timestamp.fromDate(new Date(Date.now() - 10 * 60 * 1000));
+    
     const callsQuery = role === 'admin' 
-      ? query(collection(db, 'calls'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1))
-      : query(collection(db, 'calls'), where('clientId', '==', user.uid), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1));
+      ? query(collection(db, 'calls'), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1))
+      : query(collection(db, 'calls'), where('clientId', '==', user.uid), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1));
 
     const unsubscribe = onSnapshot(callsQuery, (snapshot) => {
       if (!snapshot.empty) {
@@ -350,49 +356,6 @@ function CRMApp() {
 
     return () => unsubscribes.forEach(unsub => unsub());
   }, [user, role]);
-
-  // Seed NDA Template
-  useEffect(() => {
-    if (role === 'admin' && contractTemplates.length === 0) {
-      const ndaExists = contractTemplates.some(t => t.title === 'Mutual Non-Disclosure Agreement');
-      if (!ndaExists) {
-        const seedNDA = async () => {
-          try {
-            await addDoc(collection(db, 'contractTemplates'), {
-              title: 'Mutual Non-Disclosure Agreement',
-              content: `MUTUAL NON-DISCLOSURE AGREEMENT
-
-This Mutual Non-Disclosure Agreement (the "Agreement") is entered into as of [DATE], by and between AMBIX ALLIE ("Disclosing Party") and [CLIENT NAME] ("Receiving Party").
-
-1. Purpose
-The parties wish to explore a business opportunity of mutual interest and in connection with this opportunity, each party may disclose to the other certain confidential technical and business information.
-
-2. Confidential Information
-Confidential Information means any information disclosed by either party to the other party, either directly or indirectly, in writing, orally or by inspection of tangible objects.
-
-3. Obligations
-The Receiving Party shall:
-(a) hold the Confidential Information in strict confidence;
-(b) use the Confidential Information only for the Purpose;
-(c) not disclose the Confidential Information to any third party without prior written consent.
-
-4. Term
-This Agreement shall remain in effect for a period of two (2) years from the date of disclosure.
-
-IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first above written.
-
-AMBIX ALLIE: ____________________
-Client: ____________________`,
-              createdAt: serverTimestamp()
-            });
-          } catch (error) {
-            console.error('Error seeding NDA template:', error);
-          }
-        };
-        seedNDA();
-      }
-    }
-  }, [role, contractTemplates]);
 
   // Seed NDA Template
   useEffect(() => {
@@ -641,251 +604,6 @@ Client: ____________________`,
   );
 }
 
-function ContractTemplatesView({ templates, clients, user, sendNotification }: { templates: ContractTemplate[], clients: Client[], user: User, sendNotification: any }) {
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<ContractTemplate | null>(null);
-  const [sendingTemplate, setSendingTemplate] = useState<ContractTemplate | null>(null);
-  const [form, setForm] = useState({ title: '', content: '' });
-  const [sendForm, setSendForm] = useState({ clientId: '', content: '' });
-
-  const handleSave = async () => {
-    if (!form.title || !form.content) return;
-    try {
-      if (editingTemplate) {
-        await updateDoc(doc(db, 'contractTemplates', editingTemplate.id), {
-          ...form
-        });
-      } else {
-        await addDoc(collection(db, 'contractTemplates'), {
-          ...form,
-          createdAt: serverTimestamp()
-        });
-      }
-      setIsAddOpen(false);
-      setEditingTemplate(null);
-      setForm({ title: '', content: '' });
-    } catch (error) {
-      console.error('Error saving template:', error);
-    }
-  };
-
-  const handleSend = async () => {
-    if (!sendForm.clientId || !sendForm.content || !sendingTemplate) return;
-    const client = clients.find(c => c.id === sendForm.clientId);
-    if (!client) return;
-
-    try {
-      await addDoc(collection(db, 'contracts'), {
-        title: sendingTemplate.title,
-        clientId: client.id,
-        content: sendForm.content,
-        status: 'Sent',
-        createdAt: serverTimestamp()
-      });
-
-      if (client.uid) {
-        await sendNotification(
-          client.uid,
-          'New Contract Sent',
-          `A new contract "${sendingTemplate.title}" is ready for your signature.`,
-          'contract'
-        );
-      }
-
-      setSendingTemplate(null);
-      setSendForm({ clientId: '', content: '' });
-    } catch (error) {
-      console.error('Error sending contract:', error);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Contract Templates</h2>
-          <p className="text-slate-500 text-sm">Manage reusable legal documents and send them to clients.</p>
-        </div>
-        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white">
-          <Plus className="mr-2 h-4 w-4" /> Create Template
-        </Button>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {templates.map(template => (
-          <Card key={template.id} className="border-slate-200 shadow-sm flex flex-col">
-            <CardHeader>
-              <CardTitle className="text-lg font-bold">{template.title}</CardTitle>
-              <CardDescription className="line-clamp-3 text-xs">
-                {template.content}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1" />
-            <div className="p-6 pt-0 flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex-1"
-                onClick={() => {
-                  setEditingTemplate(template);
-                  setForm({ title: template.title, content: template.content });
-                  setIsAddOpen(true);
-                }}
-              >
-                Edit
-              </Button>
-              <Button 
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white"
-                onClick={() => {
-                  setSendingTemplate(template);
-                  setSendForm({ clientId: '', content: template.content });
-                }}
-              >
-                Send
-              </Button>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Add/Edit Dialog */}
-      <Dialog open={isAddOpen} onOpenChange={(open) => {
-        setIsAddOpen(open);
-        if (!open) {
-          setEditingTemplate(null);
-          setForm({ title: '', content: '' });
-        }
-      }}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create Template'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid gap-2">
-              <Label>Template Title</Label>
-              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Standard NDA" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Contract Content</Label>
-              <textarea 
-                className="min-h-[300px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                value={form.content}
-                onChange={e => setForm({ ...form, content: e.target.value })}
-                placeholder="Enter contract text here..."
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-slate-900 text-white">Save Template</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Send Dialog */}
-      <Dialog open={!!sendingTemplate} onOpenChange={(open) => !open && setSendingTemplate(null)}>
-        <DialogContent className="sm:max-w-[700px]">
-          <DialogHeader>
-            <DialogTitle>Send Contract: {sendingTemplate?.title}</DialogTitle>
-            <DialogDescription>Review and edit the contract details before sending to the client.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid gap-2">
-              <Label>Select Client</Label>
-              <Select value={sendForm.clientId} onValueChange={(v) => setSendForm({ ...sendForm, clientId: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a client" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Contract Content (Final Edit)</Label>
-              <textarea 
-                className="min-h-[300px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                value={sendForm.content}
-                onChange={e => setSendForm({ ...sendForm, content: e.target.value })}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSendingTemplate(null)}>Cancel</Button>
-            <Button onClick={handleSend} className="bg-blue-600 hover:bg-blue-500 text-white">Send to Client</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function ContractSigningDialog({ contract, onSign }: { contract: Contract, onSign: (data: any) => Promise<void> }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [signingData, setSigningData] = useState({ initials: '', signature: '' });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSign = async () => {
-    if (!signingData.initials || !signingData.signature) return;
-    setIsSubmitting(true);
-    try {
-      await onSign(signingData);
-      setIsOpen(false);
-    } catch (error) {
-      console.error('Error signing:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger render={<Button size="sm" className="bg-blue-600 hover:bg-blue-500 text-white">Sign Contract</Button>} />
-      <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Review & Sign: {contract.title}</DialogTitle>
-          <DialogDescription>Please review the contract content below and provide your signature.</DialogDescription>
-        </DialogHeader>
-        <ScrollArea className="flex-1 border rounded-lg p-6 bg-slate-50 my-4">
-          <div className="prose prose-slate max-w-none whitespace-pre-wrap text-sm">
-            {contract.content}
-          </div>
-        </ScrollArea>
-        <div className="grid grid-cols-2 gap-4 border-t pt-4">
-          <div className="grid gap-2">
-            <Label>Initials</Label>
-            <Input 
-              placeholder="e.g. JD" 
-              value={signingData.initials} 
-              onChange={e => setSigningData({ ...signingData, initials: e.target.value.toUpperCase() })} 
-              maxLength={3}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Full Name (Signature)</Label>
-            <Input 
-              placeholder="e.g. John Doe" 
-              value={signingData.signature} 
-              onChange={e => setSigningData({ ...signingData, signature: e.target.value })} 
-            />
-          </div>
-        </div>
-        <DialogFooter className="mt-6">
-          <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={handleSign} 
-            disabled={isSubmitting || !signingData.initials || !signingData.signature}
-            className="bg-slate-900 text-white"
-          >
-            {isSubmitting ? 'Signing...' : 'I Agree & Sign'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 function ContractTemplatesView({ templates, clients, user, sendNotification }: { templates: ContractTemplate[], clients: Client[], user: User, sendNotification: any }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ContractTemplate | null>(null);
@@ -2980,9 +2698,9 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
         }
       } else if (status === 'Active') {
         if (role === 'client') {
-          // Notify admin
+          // Notify admin - we'll find an admin UID if possible, otherwise use a placeholder that the global listener will pick up
           await sendNotification(
-            'allie.pakele@gmail.com', // Admin email/UID
+            'ADMIN_GROUP',
             'Client Started Session',
             `${session.clientName} is starting the session: ${session.title}`,
             'session'
@@ -3423,7 +3141,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
         <h2 className="text-2xl font-bold text-slate-900">Portal Not Linked</h2>
         <p className="mt-2 max-w-md text-slate-500">
           Your email ({user.email}) is not linked to a client profile in our system. 
-          Please contact Allie at <a href="mailto:allie.pakele@gmail.com" className="text-blue-600 hover:underline">allie.pakele@gmail.com</a> to gain access.
+          Please contact Allie at <a href={`mailto:${ADMIN_EMAILS[0]}`} className="text-blue-600 hover:underline">{ADMIN_EMAILS[0]}</a> to gain access.
         </p>
         <Button onClick={logOut} variant="outline" className="mt-8">
           Sign Out
@@ -3465,7 +3183,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                   
                   // Notify admin
                   await sendNotification(
-                    'allie.pakele@gmail.com', // Using email as placeholder for admin UID if not available, but better to use real UID
+                    ADMIN_EMAILS[0], // Using placeholder for admin UID if not available, but better to use real UID
                     'New Session Request',
                     `${client.name} has requested a session: ${data.title}`,
                     'session'
@@ -3592,7 +3310,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                     </div>
                     <div>
                       <p className="text-xs text-slate-400 uppercase font-bold">Email</p>
-                      <a href="mailto:allie.pakele@gmail.com" className="text-sm font-medium hover:text-blue-400 transition-colors">allie.pakele@gmail.com</a>
+                      <a href={`mailto:${ADMIN_EMAILS[0]}`} className="text-sm font-medium hover:text-blue-400 transition-colors">{ADMIN_EMAILS[0]}</a>
                     </div>
                   </div>
                   <ScheduleSessionDialog 
@@ -3612,7 +3330,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                         };
                         await addDoc(collection(db, 'scheduledSessions'), sessionData);
                         await sendNotification(
-                          'allie.pakele@gmail.com',
+                          ADMIN_EMAILS[0],
                           'New Session Request',
                           `${client.name} has requested a session: ${data.title}`,
                           'session'
@@ -3702,7 +3420,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                                 
                                 // Notify admin
                                 await sendNotification(
-                                  'allie.pakele@gmail.com',
+                                  ADMIN_EMAILS[0],
                                   'Contract Signed',
                                   `${client.name} has signed the contract: ${contract.title}`,
                                   'contract'

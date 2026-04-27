@@ -146,7 +146,8 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-          request.auth.token.email == "allie.pakele@gmail.com");
+          request.auth.token.email == "allie.pakele@gmail.com" ||
+          request.auth.token.email == "allie@vibesandvolumes.com");
     }
 
     function isClient(clientId) {
@@ -241,11 +242,6 @@ service cloud.firestore {
       allow create: if isAuthenticated(); // Anyone can send a notification (e.g. client to admin)
       allow update: if isAuthenticated() && isOwner(resource.data.userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
-    }
-
-    match /contractTemplates/{templateId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
     }
 
     match /contractTemplates/{templateId} {
