@@ -117,18 +117,22 @@
       },
       "required": ["amount", "clientId", "projectId", "status", "date", "createdAt"]
     },
-    "QnA": {
-      "title": "QnA",
-      "description": "Question and Answer for client support",
+    "Vital": {
+      "title": "Vital",
+      "description": "Essential technical information for a project (API keys, logins, etc.)",
       "type": "object",
       "properties": {
-        "question": { "type": "string" },
-        "answer": { "type": "string" },
-        "clientId": { "type": "string" },
-        "category": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "title": { "type": "string", "description": "Name of the vital info (e.g. Stripe API Key)" },
+        "value": { "type": "string", "description": "The actual value of the vital info" },
+        "clientId": { "type": "string", "description": "ID of the associated client" },
+        "category": { "type": "string", "enum": ["Login", "API Key", "Environment Variable", "Link", "Other"] },
+        "instructions": { "type": "string", "description": "Guidance on how to find this information" },
+        "status": { "type": "string", "enum": ["Pending", "Provided"], "description": "Whether the info has been provided by the client" },
+        "isRequestedByAdmin": { "type": "boolean", "description": "Whether this info was specifically requested by an admin" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["question", "clientId", "createdAt"]
+      "required": ["title", "clientId", "status", "createdAt"]
     },
     "ScheduledSession": {
       "title": "Scheduled Session",
@@ -208,7 +212,7 @@
     "/calls/{callId}": { "schema": "Call", "description": "Collection of video calls" },
     "/contracts/{contractId}": { "schema": "Contract", "description": "Collection of contracts" },
     "/payments/{paymentId}": { "schema": "Payment", "description": "Collection of payments" },
-    "/qna/{qnaId}": { "schema": "QnA", "description": "Collection of Q&A items" },
+    "/vitals/{vitalId}": { "schema": "Vital", "description": "Collection of Vitally important technical info" },
     "/scheduledSessions/{sessionId}": { "schema": "ScheduledSession", "description": "Collection of scheduled video sessions" },
     "/messages/{messageId}": { "schema": "Message", "description": "Collection of chat messages" },
     "/notifications/{notificationId}": { "schema": "Notification", "description": "Collection of user notifications" },

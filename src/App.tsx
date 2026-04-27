@@ -107,13 +107,17 @@ interface Payment {
   createdAt: any;
 }
 
-interface QnA {
+interface Vital {
   id: string;
-  question: string;
-  answer?: string;
+  title: string;
+  value?: string;
   clientId: string;
-  category?: string;
+  category?: 'Login' | 'API Key' | 'Environment Variable' | 'Link' | 'Other';
+  instructions?: string;
+  status: 'Pending' | 'Provided';
+  isRequestedByAdmin?: boolean;
   createdAt: any;
+  updatedAt?: any;
 }
 
 interface ScheduledSession {
@@ -159,7 +163,7 @@ function CRMApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [qnas, setQnas] = useState<QnA[]>([]);
+  const [vitals, setVitals] = useState<Vital[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -262,7 +266,9 @@ function CRMApp() {
     
     const callsQuery = role === 'admin' 
       ? query(collection(db, 'calls'), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1))
-      : query(collection(db, 'calls'), where('clientId', '==', user.uid), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1));
+      : (linkedClient ? query(collection(db, 'calls'), where('clientId', '==', linkedClient.id), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1)) : null);
+
+    if (!callsQuery) return;
 
     const unsubscribe = onSnapshot(callsQuery, (snapshot) => {
       if (!snapshot.empty) {
@@ -289,7 +295,7 @@ function CRMApp() {
     });
 
     return () => unsubscribe();
-  }, [user, role]);
+  }, [user, role, linkedClient]);
 
   // Data Listeners
   useEffect(() => {
@@ -328,7 +334,7 @@ function CRMApp() {
         setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
       }, (error) => handleFirestoreError(error, OperationType.LIST, 'messages')));
 
-      const notificationsQuery = query(collection(db, 'notifications'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+      const notificationsQuery = query(collection(db, 'notifications'), where('userId', 'in', [user.uid, 'ADMIN_GROUP']), orderBy('createdAt', 'desc'));
       unsubscribes.push(onSnapshot(notificationsQuery, (snapshot) => {
         setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification)));
       }, (error) => handleFirestoreError(error, OperationType.LIST, 'notifications')));
@@ -419,10 +425,10 @@ Client: ____________________`,
       setPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
 
-    const qnaQuery = query(collection(db, 'qna'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
-    const unsubscribeQna = onSnapshot(qnaQuery, (snapshot) => {
-      setQnas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QnA)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'qna'));
+    const vitalsQuery = query(collection(db, 'vitals'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribeVitals = onSnapshot(vitalsQuery, (snapshot) => {
+      setVitals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vital)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'vitals'));
 
     const messagesQuery = query(collection(db, 'messages'), where('clientId', '==', linkedClient.id), orderBy('timestamp', 'asc'));
     const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
@@ -443,7 +449,7 @@ Client: ____________________`,
       unsubscribeProjects();
       unsubscribeContracts();
       unsubscribePayments();
-      unsubscribeQna();
+      unsubscribeVitals();
       unsubscribeMessages();
       unsubscribeNotifications();
       unsubscribeSessions();
@@ -471,7 +477,7 @@ Client: ____________________`,
           projects={projects} 
           contracts={contracts} 
           payments={payments} 
-          qnas={qnas}
+          vitals={vitals}
           scheduledSessions={scheduledSessions}
           messages={messages}
           notifications={notifications}
@@ -579,6 +585,36 @@ Client: ____________________`,
       {/* Main Content */}
       <main className="ml-64 flex-1 p-8">
         <AnimatePresence mode="wait">
+          {incomingCall && activeTab !== 'dashboard' && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mb-8 overflow-hidden"
+            >
+              <Card className="border-blue-200 bg-blue-50 shadow-md">
+                <CardContent className="py-4 flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center mr-4 animate-pulse">
+                      <Video className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-blue-900">Incoming Live Session!</p>
+                      <p className="text-xs text-blue-700">Someone is waiting for you in a video room.</p>
+                    </div>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    onClick={() => setActiveCall({ callId: incomingCall.id })}
+                  >
+                    Join Now
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
           {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} />}
           {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
@@ -1543,8 +1579,14 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [clientProjects, setClientProjects] = useState<Project[]>([]);
-  const [qnas, setQnas] = useState<QnA[]>([]);
+  const [vitals, setVitals] = useState<Vital[]>([]);
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
+  const [isAddVitalOpen, setIsAddVitalOpen] = useState(false);
+  const [vitalForm, setVitalForm] = useState({
+    title: '',
+    category: 'Login' as const,
+    instructions: ''
+  });
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
     projectId: '',
@@ -1570,16 +1612,16 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
       setClientProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
     });
 
-    const qnaQuery = query(collection(db, 'qna'), where('clientId', '==', client.id), orderBy('createdAt', 'desc'));
-    const unsubQna = onSnapshot(qnaQuery, (snapshot) => {
-      setQnas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QnA)));
-    });
+    const vitalsQuery = query(collection(db, 'vitals'), where('clientId', '==', client.id), orderBy('createdAt', 'desc'));
+    const unsubVitals = onSnapshot(vitalsQuery, (snapshot) => {
+      setVitals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vital)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'vitals'));
 
     return () => {
       unsubContracts();
       unsubPayments();
       unsubProjects();
-      unsubQna();
+      unsubVitals();
     };
   }, [client.id]);
 
@@ -1660,17 +1702,32 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
     }
   };
 
-  const addQna = async () => {
-    const question = prompt('Question:');
-    const answer = prompt('Answer:');
-    if (!question) return;
-    await addDoc(collection(db, 'qna'), {
-      question,
-      answer,
-      clientId: client.id,
-      category: 'General',
-      createdAt: serverTimestamp()
-    });
+  const handleAddVital = async () => {
+    if (!vitalForm.title) return;
+    
+    try {
+      await addDoc(collection(db, 'vitals'), {
+        ...vitalForm,
+        clientId: client.id,
+        status: 'Pending',
+        isRequestedByAdmin: true,
+        createdAt: serverTimestamp()
+      });
+
+      if (client.uid) {
+        await sendNotification(
+          client.uid,
+          'Information Requested',
+          `Allie has requested some vital information: ${vitalForm.title}. Please provide it in your portal.`,
+          'message'
+        );
+      }
+      setIsAddVitalOpen(false);
+      setVitalForm({ title: '', category: 'Login', instructions: '' });
+      toast.success('Vital request sent to client.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'vitals');
+    }
   };
 
   return (
@@ -1684,7 +1741,7 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="contracts">Contracts</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
-            <TabsTrigger value="qna">Q&A</TabsTrigger>
+            <TabsTrigger value="vitals">Vitals</TabsTrigger>
           </TabsList>
           
           <TabsContent value="contracts" className="space-y-4 py-4">
@@ -1853,27 +1910,96 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
             </ScrollArea>
           </TabsContent>
 
-          <TabsContent value="qna" className="space-y-4 py-4">
+          <TabsContent value="vitals" className="space-y-4 py-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-medium">Q&A Items</h3>
-              <Button size="sm" onClick={addQna}><Plus className="h-4 w-4 mr-1" /> Add</Button>
+              <h3 className="text-sm font-medium">Digital Vitals</h3>
+              <Button size="sm" onClick={() => setIsAddVitalOpen(!isAddVitalOpen)} className="bg-slate-900 text-white">
+                {isAddVitalOpen ? 'Cancel' : <><Plus className="h-4 w-4 mr-1" /> Request Info</>}
+              </Button>
             </div>
+
+            {isAddVitalOpen && (
+              <Card className="p-4 border-slate-200 bg-slate-50">
+                <div className="grid gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="vital-title">Information Title</Label>
+                      <Input 
+                        id="vital-title" 
+                        placeholder="e.g. Stripe API Key" 
+                        value={vitalForm.title}
+                        onChange={(e) => setVitalForm({...vitalForm, title: e.target.value})}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="vital-category">Category</Label>
+                      <select 
+                        id="vital-category"
+                        className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                        value={vitalForm.category}
+                        onChange={(e) => setVitalForm({...vitalForm, category: e.target.value as any})}
+                      >
+                        <option value="Login">Login</option>
+                        <option value="API Key">API Key</option>
+                        <option value="Environment Variable">Environment Variable</option>
+                        <option value="Link">Link</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="vital-instructions">Instructions for Client</Label>
+                    <textarea 
+                      id="vital-instructions"
+                      className="flex min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                      placeholder="Explain where/how the client can find this..."
+                      value={vitalForm.instructions}
+                      onChange={(e) => setVitalForm({...vitalForm, instructions: e.target.value})}
+                    />
+                  </div>
+                  <Button size="sm" className="w-full" onClick={handleAddVital}>Send Request</Button>
+                </div>
+              </Card>
+            )}
+
             <ScrollArea className="h-[300px]">
               <div className="space-y-4">
-                {qnas.map(q => (
-                  <div key={q.id} className="p-3 border rounded-lg relative group">
-                    <p className="font-bold text-sm">Q: {q.question}</p>
-                    <p className="text-sm text-slate-600">A: {q.answer || 'No answer yet'}</p>
+                {vitals.map(v => (
+                  <div key={v.id} className="p-4 border rounded-xl relative group bg-white shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <Badge variant={v.status === 'Provided' ? 'default' : 'outline'} className={v.status === 'Pending' ? 'animate-pulse bg-yellow-50 text-yellow-700 border-yellow-200' : ''}>
+                        {v.status}
+                      </Badge>
+                      <Badge variant="ghost" className="text-[10px] uppercase">{v.category}</Badge>
+                    </div>
+                    <p className="font-bold text-sm">{v.title}</p>
+                    {v.status === 'Provided' ? (
+                      <div className="mt-2 text-xs bg-slate-50 p-2 rounded-lg break-all font-mono">
+                        {v.value}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 italic mt-1">Waiting for client to provide details...</p>
+                    )}
+                    {v.instructions && (
+                      <div className="mt-2 text-[10px] text-slate-400">
+                        <span className="font-bold">Instructions:</span> {v.instructions}
+                      </div>
+                    ) }
                     <Button 
                       variant="ghost" 
                       size="icon" 
                       className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => deleteDoc(doc(db, 'qna', q.id))}
+                      onClick={() => deleteDoc(doc(db, 'vitals', v.id))}
                     >
                       <Trash2 className="h-4 w-4 text-red-500" />
                     </Button>
                   </div>
                 ))}
+                {vitals.length === 0 && (
+                  <div className="text-center py-12 text-slate-400 text-sm italic">
+                    No vitals requested yet.
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>
@@ -3116,13 +3242,13 @@ function ScheduleSessionDialog({ clientId, clientName, onScheduled }: { clientId
   );
 }
 
-function ClientPortal({ user, client, projects, contracts, payments, qnas, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall }: { 
+function ClientPortal({ user, client, projects, contracts, payments, vitals, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall }: { 
   user: User, 
   client: Client | null, 
   projects: Project[], 
   contracts: Contract[], 
   payments: Payment[], 
-  qnas: QnA[],
+  vitals: Vital[],
   scheduledSessions: ScheduledSession[],
   messages: Message[],
   notifications: Notification[],
@@ -3222,7 +3348,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
             <TabsTrigger value="projects" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Products</TabsTrigger>
             <TabsTrigger value="contracts" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Contracts</TabsTrigger>
             <TabsTrigger value="payments" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Payments</TabsTrigger>
-            <TabsTrigger value="qna" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Q&A</TabsTrigger>
+            <TabsTrigger value="vitals" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Vitals</TabsTrigger>
             <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Sessions</TabsTrigger>
             <TabsTrigger value="messages" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Messages</TabsTrigger>
           </TabsList>
@@ -3493,30 +3619,87 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
             </Card>
           </TabsContent>
 
-          <TabsContent value="qna" className="space-y-6">
+          <TabsContent value="vitals" className="space-y-6">
             <div className="grid gap-6">
-              {qnas.map(q => (
-                <Card key={q.id} className="border-slate-200 shadow-sm">
+              {vitals.map(v => (
+                <Card key={v.id} className="border-slate-200 shadow-sm">
                   <CardHeader>
                     <div className="flex items-center justify-between mb-2">
-                      <Badge variant="outline" className="text-[10px] uppercase tracking-widest">{q.category || 'General'}</Badge>
-                      <span className="text-[10px] text-slate-400">{q.createdAt?.seconds ? new Date(q.createdAt.seconds * 1000).toLocaleDateString() : 'N/A'}</span>
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-widest">{v.category || 'Other'}</Badge>
+                      <Badge variant={v.status === 'Provided' ? 'default' : 'outline'} className={v.status === 'Pending' ? 'animate-pulse' : ''}>
+                        {v.status}
+                      </Badge>
                     </div>
-                    <CardTitle className="text-lg font-bold text-slate-900">Q: {q.question}</CardTitle>
+                    <CardTitle className="text-lg font-bold text-slate-900">{v.title}</CardTitle>
+                    {v.instructions && (
+                      <div className="mt-2 flex items-start space-x-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+                        <Clock className="h-3.5 w-3.5 mt-0.5" />
+                        <span><span className="font-bold non-italic">How to find this:</span> {v.instructions}</span>
+                      </div>
+                    )}
                   </CardHeader>
                   <CardContent>
-                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                      <p className="text-sm text-slate-700 leading-relaxed">
-                        <span className="font-bold text-slate-900 mr-2">A:</span>
-                        {q.answer || <span className="italic text-slate-400">Waiting for response...</span>}
-                      </p>
-                    </div>
+                    {v.status === 'Pending' ? (
+                      <div className="space-y-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor={`vital-${v.id}`}>Provide Details</Label>
+                          <textarea 
+                            id={`vital-${v.id}`}
+                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 min-h-[100px]"
+                            placeholder="Enter the requested information here..."
+                            onBlur={async (e) => {
+                              const val = e.target.value;
+                              if (!val) return;
+                              if (confirm('Submit this information? It will be securely stored for your developer.')) {
+                                try {
+                                  await updateDoc(doc(db, 'vitals', v.id), {
+                                    value: val,
+                                    status: 'Provided',
+                                    updatedAt: serverTimestamp()
+                                  });
+                                  toast.success('Information provided successfully.');
+                                } catch (error) {
+                                  handleFirestoreError(error, OperationType.UPDATE, 'vitals');
+                                }
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <p className="text-xs text-slate-400 uppercase font-bold mb-1">Secure Value</p>
+                        <p className="text-sm text-slate-700 leading-relaxed font-mono break-all">
+                          {v.value}
+                        </p>
+                        <Button 
+                          variant="link" 
+                          size="sm" 
+                          className="mt-2 h-auto p-0 text-xs text-blue-600"
+                          onClick={() => {
+                            const newVal = prompt('Update this information:', v.value);
+                            if (newVal !== null && newVal !== v.value) {
+                              updateDoc(doc(db, 'vitals', v.id), {
+                                value: newVal,
+                                updatedAt: serverTimestamp()
+                              });
+                            }
+                          }}
+                        >
+                          Edit Information
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
-              {qnas.length === 0 && (
-                <div className="text-center py-12 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 text-slate-400">
-                  No Q&A items yet.
+              {vitals.length === 0 && (
+                <div className="text-center py-24 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 text-slate-400">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                    <CheckSquare className="h-6 w-6 text-slate-300" />
+                  </div>
+                  <h3 className="font-bold text-slate-600">All Vitals Clear</h3>
+                  <p className="text-sm">No technical information has been requested yet.</p>
                 </div>
               )}
             </div>

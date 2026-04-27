@@ -153,8 +153,18 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     onSnapshot(answerCandidates, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
-          const candidate = new RTCIceCandidate(change.doc.data());
-          pc.addIceCandidate(candidate);
+          const data = change.doc.data();
+          if (pc.currentRemoteDescription) {
+            pc.addIceCandidate(new RTCIceCandidate(data)).catch(e => console.error('Error adding answer candidate:', e));
+          } else {
+            // Queue candidate for later
+            const interval = setInterval(() => {
+              if (pc.currentRemoteDescription) {
+                pc.addIceCandidate(new RTCIceCandidate(data)).catch(e => console.error('Error adding answer candidate after delay:', e));
+                clearInterval(interval);
+              }
+            }, 500);
+          }
         }
       });
     });
@@ -187,8 +197,12 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
       }
     };
 
-    const callData = (await getDoc(callDoc)).data();
-    if (!callData) return;
+    const docSnapshot = await getDoc(callDoc);
+    const callData = docSnapshot.data();
+    if (!callData) {
+      console.error('No call data found for join');
+      return;
+    }
 
     const offerDescription = callData.offer;
     await pc.setRemoteDescription(new RTCSessionDescription(offerDescription));
@@ -207,7 +221,16 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const data = change.doc.data();
-          pc.addIceCandidate(new RTCIceCandidate(data));
+          if (pc.currentRemoteDescription) {
+            pc.addIceCandidate(new RTCIceCandidate(data)).catch(e => console.error('Error adding offer candidate:', e));
+          } else {
+            const interval = setInterval(() => {
+              if (pc.currentRemoteDescription) {
+                pc.addIceCandidate(new RTCIceCandidate(data)).catch(e => console.error('Error adding offer candidate after delay:', e));
+                clearInterval(interval);
+              }
+            }, 500);
+          }
         }
       });
     });

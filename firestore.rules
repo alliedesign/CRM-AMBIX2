@@ -143,11 +143,26 @@ service cloud.firestore {
         data.status in ['Todo', 'In Progress', 'Done'];
     }
 
+    function isValidVital(data) {
+      return hasRequiredFields(['title', 'clientId', 'status', 'createdAt']) &&
+        data.title is string && data.title.size() < 200 &&
+        data.clientId is string &&
+        data.status in ['Pending', 'Provided'] &&
+        (!('category' in data) || data.category in ['Login', 'API Key', 'Environment Variable', 'Link', 'Other']);
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email in ["allie.pakele@gmail.com", "allie@vibesandvolumes.com"]
+      );
+    }
+
     function isAdmin() {
-      return isAuthenticated() &&
-        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-          request.auth.token.email == "allie.pakele@gmail.com" ||
-          request.auth.token.email == "allie@vibesandvolumes.com");
+      return isSuperAdmin() || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
     }
 
     function isClient(clientId) {
@@ -201,10 +216,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    match /qna/{qnaId} {
+    match /vitals/{vitalId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
+      allow create: if isAuthenticated() && isValidVital(request.resource.data);
+      allow update: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId)) && isValidVital(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /calls/{callId} {
@@ -238,8 +254,8 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && isOwner(resource.data.userId);
-      allow create: if isAuthenticated(); // Anyone can send a notification (e.g. client to admin)
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isSuperAdmin() || (isAdmin() && resource.data.userId == 'ADMIN_GROUP'));
+      allow create: if isAuthenticated();
       allow update: if isAuthenticated() && isOwner(resource.data.userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
     }

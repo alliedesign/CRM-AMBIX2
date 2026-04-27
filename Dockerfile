@@ -1,5 +1,5 @@
-# Use Node.js 20 as base image
-FROM node:20-slim AS base
+# Use Node.js 22 as base image
+FROM node:22-slim AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -23,8 +23,8 @@ ENV NODE_ENV=production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/server.js ./server.js
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
