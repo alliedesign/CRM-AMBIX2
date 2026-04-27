@@ -209,16 +209,31 @@ function CRMApp() {
         console.error('Error updating session with callId:', error);
       }
     } else if (activeCall?.clientId) {
-      // Ad-hoc call: find the client's user ID and send a notification
+      // Ad-hoc call: find the client's user ID and send a notification AND create a call doc
       const client = clients.find(c => c.id === activeCall.clientId);
-      if (client && client.uid) {
-        sendNotification(
-          client.uid,
-          'Incoming Live Session',
-          `${user?.displayName || 'Allie'} is inviting you to a live session. Click to join!`,
-          'session',
-          `?callId=${callId}`
-        );
+      
+      try {
+        // Create a 'calls' document that the client's listener (lines 287-324) is watching
+        await addDoc(collection(db, 'calls'), {
+          clientId: activeCall.clientId,
+          id: callId,
+          status: 'pending',
+          createdBy: user?.uid,
+          createdAt: serverTimestamp(),
+          clientName: client?.name || 'Client'
+        });
+
+        if (client && client.uid) {
+          sendNotification(
+            client.uid,
+            'Incoming Live Session',
+            `${user?.displayName || 'Allie'} is inviting you to a live session. Click to join!`,
+            'session',
+            `?callId=${callId}`
+          );
+        }
+      } catch (error) {
+        console.error('Error creating calls record:', error);
       }
     }
   };
@@ -287,12 +302,12 @@ function CRMApp() {
   useEffect(() => {
     if (!user || !role) return;
 
-    // Only listen for calls from the last 10 minutes to avoid stale calls
-    const tenMinutesAgo = Timestamp.fromDate(new Date(Date.now() - 10 * 60 * 1000));
+    // Only listen for calls from the last 2 minutes to avoid stale calls
+    const twoMinutesAgo = Timestamp.fromDate(new Date(Date.now() - 2 * 60 * 1000));
     
     const callsQuery = role === 'admin' 
-      ? query(collection(db, 'calls'), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1))
-      : (linkedClient ? query(collection(db, 'calls'), where('clientId', '==', linkedClient.id), where('status', '==', 'pending'), where('createdAt', '>=', tenMinutesAgo), orderBy('createdAt', 'desc'), limit(1)) : null);
+      ? query(collection(db, 'calls'), where('status', '==', 'pending'), where('createdAt', '>=', twoMinutesAgo), orderBy('createdAt', 'desc'), limit(1))
+      : (linkedClient ? query(collection(db, 'calls'), where('clientId', '==', linkedClient.id), where('status', '==', 'pending'), where('createdAt', '>=', twoMinutesAgo), orderBy('createdAt', 'desc'), limit(1)) : null);
 
     if (!callsQuery) return;
 
@@ -300,12 +315,24 @@ function CRMApp() {
       if (!snapshot.empty) {
         const data = snapshot.docs[0].data() as any;
         const callData = { id: snapshot.docs[0].id, ...data };
+        
         // Don't show if we created it
         if (callData.createdBy !== user.uid) {
+          // Check if this specific call has been dismissed in this session
+          const dismissedCalls = JSON.parse(sessionStorage.getItem('dismissed_calls') || '[]');
+          if (dismissedCalls.includes(callData.id)) {
+            setIncomingCall(null);
+            return;
+          }
+
           setIncomingCall(callData);
-          toast.info('Incoming Video Call', {
-            description: 'A live session has started.',
-            duration: 10000,
+          
+          // Auto-read toast notification - but keep the custom modal for visibility
+          const toastId = `call-${callData.id}`;
+          toast.info('Incoming Live Session', {
+            id: toastId,
+            description: 'Allie is inviting you to a live session.',
+            duration: 15000,
             action: {
               label: 'Join',
               onClick: () => {
@@ -510,6 +537,15 @@ Client: ____________________`,
           sendNotification={sendNotification}
           onStartCall={setActiveCall}
           incomingCall={incomingCall}
+          onDismissCall={(id?: string) => {
+            if (id) {
+              const dismissed = JSON.parse(sessionStorage.getItem('dismissed_calls') || '[]');
+              sessionStorage.setItem('dismissed_calls', JSON.stringify([...dismissed, id]));
+              // Also update Firestore so it stops showing for others
+              updateDoc(doc(db, 'calls', id), { status: 'dismissed' }).catch(console.error);
+            }
+            setIncomingCall(null);
+          }}
           activeTab={activeTab === 'dashboard' ? 'overview' : activeTab} // Safely map dashboard to overview for client
           setActiveTab={setActiveTab}
         />
@@ -1121,7 +1157,7 @@ function SidebarLink({ icon, label, active, onClick, badge }: { icon: React.Reac
   );
 }
 
-function NotificationBell({ notifications, setActiveTab, onStartCall }: { notifications: Notification[], setActiveTab?: (tab: string) => void, onStartCall?: (data: any) => void }) {
+function NotificationBell({ notifications, setActiveTab, onStartCall, onDismissCall }: { notifications: Notification[], setActiveTab?: (tab: string) => void, onStartCall?: (data: any) => void, onDismissCall?: (id: string) => void }) {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAsRead = async (id: string) => {
@@ -3535,7 +3571,7 @@ function ScheduleSessionDialog({ clientId, clientName, onScheduled }: { clientId
   );
 }
 
-function ClientPortal({ user, client, projects, contracts, payments, vitals, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall, activeTab, setActiveTab }: { 
+function ClientPortal({ user, client, projects, contracts, payments, vitals, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall, onDismissCall, activeTab, setActiveTab }: { 
   user: User, 
   client: Client | null, 
   projects: Project[], 
@@ -3548,6 +3584,7 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
   sendNotification: any,
   onStartCall: (callData: any) => void,
   incomingCall?: any,
+  onDismissCall: (id?: string) => void,
   activeTab: string,
   setActiveTab: (tab: string) => void
 }) {
@@ -3620,6 +3657,7 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
                 notifications={notifications} 
                 setActiveTab={setActiveTab} 
                 onStartCall={(data) => onStartCall(data)} 
+                onDismissCall={(id) => onDismissCall(id)}
               />
               <div className="h-8 w-8 rounded-full border border-slate-200 bg-slate-100 flex items-center justify-center overflow-hidden">
                 {user.photoURL ? (
@@ -4071,6 +4109,13 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
                     onClick={() => onStartCall({ callId: incomingCall.id, clientName: 'Allie (Host)' })}
                   >
                     Join Now
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    className="flex-1 border-slate-200 text-slate-600 hover:bg-slate-50"
+                    onClick={() => onDismissCall(incomingCall.id)}
+                  >
+                    Decline
                   </Button>
                 </div>
               </div>

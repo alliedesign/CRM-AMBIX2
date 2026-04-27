@@ -43,6 +43,7 @@ async function startServer() {
           user: {
             name: userName || (isAdmin ? 'Allie (Host)' : 'Client'),
             affiliation: isAdmin ? 'owner' : 'member',
+            moderator: isAdmin ? true : false,
           },
           features: {
             livestreaming: true,
