@@ -1,5 +1,5 @@
 {
   "name": "Ambix Allie CRM",
-  "description": "A specialized CRM for Ambix Allie, managing creative, business, and platform projects for mobile apps and websites.",
+  "description": "A specialized CRM and Client Portal for Ambix Allie, featuring project management, secure messaging, and live video collaboration sessions.",
   "requestFramePermissions": ["camera", "microphone"]
 }

@@ -20,9 +20,10 @@ interface VideoCallProps {
   onClose: () => void;
   callId?: string; // If provided, we are joining a call
   isAdmin?: boolean;
+  onCallCreated?: (callId: string) => void;
 }
 
-export function VideoCall({ clientId, clientName, user, onClose, callId: initialCallId, isAdmin = false }: VideoCallProps) {
+export function VideoCall({ clientId, clientName, user, onClose, callId: initialCallId, isAdmin = false, onCallCreated }: VideoCallProps) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -63,7 +64,7 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
         }
 
         if (initialCallId) {
-          joinCall(initialCallId);
+          joinCall(initialCallId, stream);
         }
       } catch (error) {
         console.error('Error accessing media devices:', error);
@@ -142,6 +143,7 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     });
 
     setCallId(callDoc.id);
+    if (onCallCreated) onCallCreated(callDoc.id);
 
     onSnapshot(callDoc, (snapshot) => {
       const data = snapshot.data();
@@ -171,14 +173,15 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     });
   };
 
-  const joinCall = async (id: string) => {
-    if (!localStream) return;
+  const joinCall = async (id: string, streamOverride?: MediaStream) => {
+    const stream = streamOverride || localStream;
+    if (!stream) return;
     setStatus('calling');
 
     const pc = new RTCPeerConnection(servers);
     peerConnection.current = pc;
 
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
     pc.ontrack = (event) => {
       setRemoteStream(event.streams[0]);

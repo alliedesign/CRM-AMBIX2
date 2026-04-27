@@ -130,6 +130,7 @@ interface ScheduledSession {
   status: 'Requested' | 'Accepted' | 'Declined' | 'Active' | 'Completed' | 'Cancelled' | 'Proposed';
   createdAt: any;
   createdBy: string;
+  callId?: string;
 }
 
 interface Notification {
@@ -193,7 +194,20 @@ function CRMApp() {
       console.error('Error sending notification:', error);
     }
   };
-  const [activeCall, setActiveCall] = useState<{ clientId?: string, clientName?: string, callId?: string } | null>(null);
+  const [activeCall, setActiveCall] = useState<{ clientId?: string, clientName?: string, callId?: string, sessionId?: string } | null>(null);
+
+  const handleCallCreated = async (callId: string) => {
+    if (activeCall?.sessionId) {
+      try {
+        await updateDoc(doc(db, 'scheduledSessions', activeCall.sessionId), {
+           callId,
+           status: 'Active'
+        });
+      } catch (error) {
+        console.error('Error updating session with callId:', error);
+      }
+    }
+  };
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [lastNotificationId, setLastNotificationId] = useState<string | null>(null);
 
@@ -493,6 +507,7 @@ Client: ____________________`,
             user={user} 
             onClose={() => setActiveCall(null)} 
             isAdmin={role === 'admin'}
+            onCallCreated={handleCallCreated}
           />
         )}
         <Toaster position="top-right" expand={true} richColors />
@@ -646,6 +661,7 @@ Client: ____________________`,
           user={user} 
           onClose={() => setActiveCall(null)} 
           isAdmin={role === 'admin'}
+          onCallCreated={handleCallCreated}
         />
       )}
       <Toaster position="top-right" expand={true} richColors />
@@ -2938,7 +2954,12 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
     if (session.status !== 'Active') {
       handleStatusChange(session.id, 'Active');
     }
-    onStartCall({ clientId: session.clientId, clientName: session.clientName });
+    onStartCall({ 
+      clientId: session.clientId, 
+      clientName: session.clientName, 
+      sessionId: session.id,
+      callId: session.callId 
+    });
   };
 
   return (
