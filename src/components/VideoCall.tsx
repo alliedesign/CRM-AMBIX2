@@ -27,6 +27,11 @@ interface VideoCallProps {
 export function VideoCall({ clientName, onClose, callId: initialCallId, sessionId, isAdmin = false, onCallCreated }: VideoCallProps & { sessionId?: string }) {
   const roomName = initialCallId || sessionId || `ambix-allie-session-${Math.random().toString(36).substring(7)}`;
   
+  // Support for Jitsi as a Service (JaaS)
+  const appId = (import.meta as any).env.VITE_JITSI_APP_ID;
+  const domain = appId ? '8x8.vc' : 'meet.jit.si';
+  const roomPath = appId ? `${appId}/${roomName}` : roomName;
+
   useEffect(() => {
     if (!initialCallId && roomName && onCallCreated && isAdmin) {
       onCallCreated(roomName);
@@ -34,7 +39,7 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   }, [initialCallId, roomName, onCallCreated, isAdmin]);
 
   const displayName = isAdmin ? 'Allie (Host)' : (clientName || 'Client');
-  const jitsiUrl = `https://meet.jit.si/${roomName}#userInfo.displayName="${displayName}"&config.startWithAudioMuted=false&config.startWithVideoMuted=false&interfaceConfig.TOOLBAR_BUTTONS=["microphone","camera","closedcaptions","desktop","fullscreen","fittowindow","hangup","profile","chat","recording","livestreaming","etherpad","sharedvideo","settings","raisehand","videoquality","filmstrip","invite","feedback","stats","shortcuts","tileview","videobackground","help","mute-everyone","videopreview","download","localrecording","selfview"]`;
+  const jitsiUrl = `https://${domain}/${roomPath}#userInfo.displayName="${displayName}"&config.startWithAudioMuted=false&config.startWithVideoMuted=false&interfaceConfig.TOOLBAR_BUTTONS=["microphone","camera","closedcaptions","desktop","fullscreen","fittowindow","hangup","profile","chat","recording","livestreaming","etherpad","sharedvideo","settings","raisehand","videoquality","filmstrip","invite","feedback","stats","shortcuts","tileview","videobackground","help","mute-everyone","videopreview","download","localrecording","selfview"]`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-0 sm:p-4">
