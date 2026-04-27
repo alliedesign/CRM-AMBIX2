@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from 'sonner';
 
 interface VideoCallProps {
   clientId?: string;
@@ -73,7 +74,9 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     }
   }, [remoteStream]);
 
+  // 1. Initial Media Acquisition
   useEffect(() => {
+    let unmounted = false;
     const init = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -84,6 +87,10 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
           }, 
           audio: true 
         });
+        if (unmounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
         setLocalStream(stream);
         
         if (initialCallId) {
@@ -96,29 +103,41 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
 
     init();
 
-    if (callId) {
-      const messagesRef = collection(db, 'calls', callId, 'messages');
-      const linksRef = collection(db, 'calls', callId, 'links');
+    return () => {
+      unmounted = true;
+    };
+  }, []);
 
-      const unsubMessages = onSnapshot(query(messagesRef, orderBy('createdAt', 'asc')), (snapshot) => {
-        setSessionMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+  // 2. Cleanup on Final Unmount
+  useEffect(() => {
+    return () => {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+      }
+    };
+  }, [localStream]);
 
-      const unsubLinks = onSnapshot(query(linksRef, orderBy('createdAt', 'desc')), (snapshot) => {
-        setSessionLinks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+  // 3. Content Listeners (Messages & Links)
+  useEffect(() => {
+    if (!callId) return;
 
-      return () => {
-        localStream?.getTracks().forEach(track => track.stop());
-        peerConnection.current?.close();
-        unsubMessages();
-        unsubLinks();
-      };
-    }
+    const messagesRef = collection(db, 'calls', callId, 'messages');
+    const linksRef = collection(db, 'calls', callId, 'links');
+
+    const unsubMessages = onSnapshot(query(messagesRef, orderBy('createdAt', 'asc')), (snapshot) => {
+      setSessionMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const unsubLinks = onSnapshot(query(linksRef, orderBy('createdAt', 'desc')), (snapshot) => {
+      setSessionLinks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
 
     return () => {
-      localStream?.getTracks().forEach(track => track.stop());
-      peerConnection.current?.close();
+      unsubMessages();
+      unsubLinks();
     };
   }, [callId]);
 
@@ -130,15 +149,26 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     peerConnection.current = pc;
 
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
+    
     pc.oniceconnectionstatechange = () => {
-      console.log('Caller ICE state:', pc.iceConnectionState);
+      console.log('ICE Connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+         // Optionally handle disconnect
+      }
     };
 
     pc.ontrack = (event) => {
-      console.log('Caller got remote track:', event.streams[0]);
-      setRemoteStream(event.streams[0]);
-      setStatus('connected');
+      console.log('Caller got remote track:', event.track.kind, event.streams[0]);
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+        setStatus('connected');
+      } else {
+        // Fallback for some browsers
+        const inboundStream = new MediaStream();
+        inboundStream.addTrack(event.track);
+        setRemoteStream(inboundStream);
+        setStatus('connected');
+      }
     };
 
     const callDoc = doc(collection(db, 'calls'));
@@ -175,6 +205,8 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
       if (!pc.currentRemoteDescription && data?.answer) {
         const answerDescription = new RTCSessionDescription(data.answer);
         pc.setRemoteDescription(answerDescription);
+        console.log('Admin: Set remote description from answer');
+        toast.success(`${clientName || 'Client'} has joined the session!`);
       }
     });
 
@@ -213,9 +245,16 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     };
 
     pc.ontrack = (event) => {
-      console.log('Joiner got remote track:', event.streams[0]);
-      setRemoteStream(event.streams[0]);
-      setStatus('connected');
+      console.log('Joiner got remote track:', event.track.kind, event.streams[0]);
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+        setStatus('connected');
+      } else {
+        const inboundStream = new MediaStream();
+        inboundStream.addTrack(event.track);
+        setRemoteStream(inboundStream);
+        setStatus('connected');
+      }
     };
 
     const callDoc = doc(db, 'calls', id);
@@ -456,14 +495,19 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
                   ref={remoteVideoRef} 
                   autoPlay 
                   playsInline 
-                  className="w-full h-full object-cover"
+                  className={`w-full h-full object-cover transition-opacity duration-500 ${remoteStream ? 'opacity-100' : 'opacity-0'}`}
                 />
+                
                 {!remoteStream && status === 'calling' && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-900">
                     <div className="h-16 w-16 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
-                    <p className="text-slate-400 text-sm font-medium">Waiting for client to join...</p>
+                    <div className="text-center">
+                      <p className="text-white text-lg font-bold">Connecting Live Session...</p>
+                      <p className="text-slate-400 text-sm">{isAdmin ? 'Waiting for client to connect' : 'Establishing connection with host'}</p>
+                    </div>
                   </div>
                 )}
+                
                 {!remoteStream && status === 'idle' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4">
                     <div className="h-20 w-20 rounded-full bg-slate-800 flex items-center justify-center">
