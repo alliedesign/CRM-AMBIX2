@@ -1164,6 +1164,17 @@ function NotificationBell({ notifications, setActiveTab, onStartCall, onDismissC
     await updateDoc(doc(db, 'notifications', id), { read: true });
   };
 
+  const markAllAsRead = async () => {
+    const unread = notifications.filter(n => !n.read);
+    const batch = unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
+    await Promise.all(batch);
+  };
+
+  const deleteAll = async () => {
+    const batch = notifications.map(n => deleteDoc(doc(db, 'notifications', n.id)));
+    await Promise.all(batch);
+  };
+
   const handleNotificationClick = (n: Notification) => {
     markAsRead(n.id);
     if (!setActiveTab) return;
@@ -1195,9 +1206,23 @@ function NotificationBell({ notifications, setActiveTab, onStartCall, onDismissC
         </div>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[400px]">
-        <DialogHeader>
-          <DialogTitle>Notifications</DialogTitle>
-          <DialogDescription>Stay updated with your latest activity.</DialogDescription>
+        <DialogHeader className="flex flex-row items-center justify-between items-start">
+          <div>
+            <DialogTitle>Notifications</DialogTitle>
+            <DialogDescription>Stay updated with your latest activity.</DialogDescription>
+          </div>
+          <div className="flex flex-col items-end space-y-1">
+            {notifications.length > 0 && (
+              <>
+                <Button variant="ghost" size="sm" onClick={markAllAsRead} className="h-6 px-2 text-[10px]">
+                  Mark all read
+                </Button>
+                <Button variant="ghost" size="sm" onClick={deleteAll} className="h-6 px-2 text-[10px] text-red-500 hover:text-red-600">
+                  Clear all
+                </Button>
+              </>
+            )}
+          </div>
         </DialogHeader>
         <ScrollArea className="h-[400px] pr-4">
           <div className="space-y-4">
@@ -1238,6 +1263,17 @@ function NotificationsView({ notifications, setActiveTab, onStartCall }: { notif
     await updateDoc(doc(db, 'notifications', id), { read: true });
   };
 
+  const markAllAsRead = async () => {
+    const unread = notifications.filter(n => !n.read);
+    const batch = unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
+    await Promise.all(batch);
+  };
+
+  const deleteAll = async () => {
+    const batch = notifications.map(n => deleteDoc(doc(db, 'notifications', n.id)));
+    await Promise.all(batch);
+  };
+
   const handleNotificationClick = (n: Notification) => {
     markAsRead(n.id);
     if (!setActiveTab) return;
@@ -1263,9 +1299,23 @@ function NotificationsView({ notifications, setActiveTab, onStartCall }: { notif
       exit={{ opacity: 0, y: -10 }}
       className="space-y-8 max-w-4xl mx-auto"
     >
-      <header>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Notifications</h1>
-        <p className="text-slate-500">Stay updated with your latest activity.</p>
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Notifications</h1>
+          <p className="text-slate-500">Stay updated with your latest activity.</p>
+        </div>
+        <div className="flex items-center space-x-3">
+          {notifications.length > 0 && (
+            <>
+              <Button variant="outline" size="sm" onClick={markAllAsRead}>
+                Mark all read
+              </Button>
+              <Button variant="outline" size="sm" onClick={deleteAll} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                Clear all
+              </Button>
+            </>
+          )}
+        </div>
       </header>
 
       <div className="grid gap-4">
