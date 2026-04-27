@@ -131,6 +131,7 @@ interface ScheduledSession {
   createdAt: any;
   createdBy: string;
   callId?: string;
+  meetingLink?: string;
 }
 
 interface Notification {
@@ -2895,7 +2896,8 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
       clientName: client?.name || 'Unknown',
       status: isClientView ? 'Requested' : 'Proposed',
       createdAt: serverTimestamp(),
-      createdBy: user.uid
+      createdBy: user.uid,
+      meetingLink: (newSession as any).meetingLink || ''
     });
     
     setIsAddOpen(false);
@@ -3026,6 +3028,15 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
                   onChange={(e) => setNewSession({ ...newSession, duration: parseInt(e.target.value) })}
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Meeting Link (Optional - Zoom/Google Meet)</Label>
+                <Input 
+                  placeholder="https://zoom.us/j/..."
+                  value={(newSession as any).meetingLink || ''}
+                  onChange={(e) => setNewSession({ ...newSession, meetingLink: e.target.value })}
+                />
+                <p className="text-[10px] text-slate-500 italic">If provided, the "Join" button will open this external link.</p>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
@@ -3100,17 +3111,28 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
                 )}
 
                 {session.status === 'Accepted' && (
-                  <div className="flex space-x-2">
-                    {role === 'admin' ? (
+                  <div className="flex flex-col space-y-2">
+                    {session.meetingLink ? (
                       <Button 
-                        className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
-                        onClick={() => startSession(session)}
+                        className="w-full bg-blue-600 text-white hover:bg-blue-500"
+                        onClick={() => window.open(session.meetingLink, '_blank')}
                       >
-                        <Video className="mr-2 h-4 w-4" /> Start Session
+                        <Video className="mr-2 h-4 w-4" /> Join Zoom/External Meeting
                       </Button>
                     ) : (
-                      <div className="flex-1 flex items-center justify-center p-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100">
-                        <Clock className="mr-2 h-3 w-3 animate-pulse" /> Waiting for Host to start
+                      <div className="flex space-x-2">
+                        {role === 'admin' ? (
+                          <Button 
+                            className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
+                            onClick={() => startSession(session)}
+                          >
+                            <Video className="mr-2 h-4 w-4" /> Start Live Session
+                          </Button>
+                        ) : (
+                          <div className="flex-1 flex items-center justify-center p-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100">
+                            <Clock className="mr-2 h-3 w-3 animate-pulse" /> Waiting for Host to start
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3118,12 +3140,21 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
 
                 {session.status === 'Active' && (
                   <div className="flex space-x-2">
-                    <Button 
-                      className="flex-1 bg-blue-600 text-white hover:bg-blue-500"
-                      onClick={() => startSession(session)}
-                    >
-                      <Video className="mr-2 h-4 w-4" /> Join Live Session
-                    </Button>
+                    {session.meetingLink ? (
+                      <Button 
+                        className="flex-1 bg-blue-600 text-white hover:bg-blue-500"
+                        onClick={() => window.open(session.meetingLink, '_blank')}
+                      >
+                        <Video className="mr-2 h-4 w-4" /> Join Zoom Meeting
+                      </Button>
+                    ) : (
+                      <Button 
+                        className="flex-1 bg-blue-600 text-white hover:bg-blue-500"
+                        onClick={() => startSession(session)}
+                      >
+                        <Video className="mr-2 h-4 w-4" /> Join Live Session
+                      </Button>
+                    )}
                     {role === 'admin' && (
                       <Button variant="outline" onClick={() => handleStatusChange(session.id, 'Completed')}>
                         End
