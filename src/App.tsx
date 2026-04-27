@@ -141,6 +141,7 @@ interface Notification {
   message: string;
   type: 'message' | 'session' | 'contract' | 'payment';
   link?: string;
+  actionUrl?: string;
   read: boolean;
   createdAt: any;
 }
@@ -599,7 +600,11 @@ Client: ____________________`,
         </nav>
         <div className="absolute bottom-0 w-full border-t border-slate-100 p-4">
           <div className="flex items-center justify-between mb-4">
-            <NotificationBell notifications={notifications} />
+            <NotificationBell 
+              notifications={notifications} 
+              setActiveTab={setActiveTab} 
+              onStartCall={(data) => setActiveCall(data)} 
+            />
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -656,7 +661,13 @@ Client: ____________________`,
           )}
 
           {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} setActiveTab={setActiveTab} />}
-          {activeTab === 'notifications' && <NotificationsView notifications={notifications} />}
+          {activeTab === 'notifications' && (
+            <NotificationsView 
+              notifications={notifications} 
+              setActiveTab={setActiveTab} 
+              onStartCall={(data) => setActiveCall(data)} 
+            />
+          )}
           {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'tasks' && <TasksView tasks={tasks} projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
@@ -1110,18 +1121,36 @@ function SidebarLink({ icon, label, active, onClick, badge }: { icon: React.Reac
   );
 }
 
-function NotificationBell({ notifications }: { notifications: Notification[] }) {
+function NotificationBell({ notifications, setActiveTab, onStartCall }: { notifications: Notification[], setActiveTab?: (tab: string) => void, onStartCall?: (data: any) => void }) {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAsRead = async (id: string) => {
     await updateDoc(doc(db, 'notifications', id), { read: true });
   };
 
+  const handleNotificationClick = (n: Notification) => {
+    markAsRead(n.id);
+    if (!setActiveTab) return;
+    
+    if (n.type === 'session') {
+      setActiveTab('sessions');
+    } else if (n.type === 'message') {
+      setActiveTab('messages');
+    }
+
+    if (n.actionUrl?.includes('callId=') && onStartCall) {
+      const callId = new URLSearchParams(n.actionUrl.split('?')[1]).get('callId');
+      if (callId) {
+        onStartCall({ callId, clientName: 'Allie (Host)' });
+      }
+    }
+  };
+
   return (
     <Dialog>
       <DialogTrigger render={<Button variant="ghost" size="icon" className="relative text-slate-400 hover:text-slate-900" />}>
         <div className="relative">
-          <Mail className="h-5 w-5" />
+          <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
               {unreadCount}
@@ -1145,7 +1174,7 @@ function NotificationBell({ notifications }: { notifications: Notification[] }) 
                 <div 
                   key={n.id} 
                   className={`p-3 rounded-xl border transition-all cursor-pointer ${n.read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100'}`}
-                  onClick={() => markAsRead(n.id)}
+                  onClick={() => handleNotificationClick(n)}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-2">
@@ -1168,9 +1197,27 @@ function NotificationBell({ notifications }: { notifications: Notification[] }) 
   );
 }
 
-function NotificationsView({ notifications }: { notifications: Notification[] }) {
+function NotificationsView({ notifications, setActiveTab, onStartCall }: { notifications: Notification[], setActiveTab?: (tab: string) => void, onStartCall?: (data: any) => void }) {
   const markAsRead = async (id: string) => {
     await updateDoc(doc(db, 'notifications', id), { read: true });
+  };
+
+  const handleNotificationClick = (n: Notification) => {
+    markAsRead(n.id);
+    if (!setActiveTab) return;
+    
+    if (n.type === 'session') {
+      setActiveTab('sessions');
+    } else if (n.type === 'message') {
+      setActiveTab('messages');
+    }
+
+    if (n.actionUrl?.includes('callId=') && onStartCall) {
+      const callId = new URLSearchParams(n.actionUrl.split('?')[1]).get('callId');
+      if (callId) {
+        onStartCall({ callId, clientName: 'Allie (Host)' });
+      }
+    }
   };
 
   return (
@@ -1199,7 +1246,7 @@ function NotificationsView({ notifications }: { notifications: Notification[] })
             <Card 
               key={n.id} 
               className={`transition-all cursor-pointer hover:shadow-md ${n.read ? 'bg-white opacity-80' : 'bg-white border-l-4 border-l-blue-500'}`}
-              onClick={() => markAsRead(n.id)}
+              onClick={() => handleNotificationClick(n)}
             >
               <CardContent className="p-5">
                 <div className="flex items-start justify-between">
@@ -3569,7 +3616,11 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
               }} 
             />
             <div className="flex items-center space-x-3 border-l border-slate-200 pl-4">
-              <NotificationBell notifications={notifications} />
+              <NotificationBell 
+                notifications={notifications} 
+                setActiveTab={setActiveTab} 
+                onStartCall={(data) => onStartCall(data)} 
+              />
               <div className="h-8 w-8 rounded-full border border-slate-200 bg-slate-100 flex items-center justify-center overflow-hidden">
                 {user.photoURL ? (
                   <img src={user.photoURL} alt="" className="h-full w-full object-cover" />
@@ -3618,7 +3669,11 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
           </TabsList>
 
           <TabsContent value="notifications" className="space-y-8">
-            <NotificationsView notifications={notifications} />
+            <NotificationsView 
+              notifications={notifications} 
+              setActiveTab={setActiveTab} 
+              onStartCall={(data) => onStartCall(data)} 
+            />
           </TabsContent>
 
           <TabsContent value="overview" className="space-y-8">
@@ -3993,6 +4048,36 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
           <p className="text-sm text-slate-500">© 2026 Ambix Allie. All rights reserved.</p>
         </div>
       </footer>
+
+      {incomingCall && (
+        <div className="fixed bottom-6 right-6 z-50 w-full max-w-sm px-4 sm:px-0">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="rounded-2xl border border-blue-200 bg-white p-6 shadow-2xl shadow-blue-200/50"
+          >
+            <div className="flex items-start space-x-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white animate-pulse">
+                <Video className="h-6 w-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-slate-900">Live Session Invitation</h3>
+                <p className="mt-1 text-sm text-slate-500 italic">
+                  Allie is inviting you to a live video session right now.
+                </p>
+                <div className="mt-4 flex space-x-3">
+                  <Button 
+                    className="flex-1 bg-blue-600 text-white hover:bg-blue-700" 
+                    onClick={() => onStartCall({ callId: incomingCall.id, clientName: 'Allie (Host)' })}
+                  >
+                    Join Now
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
