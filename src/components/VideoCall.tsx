@@ -1,14 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
-import { collection, doc, addDoc, onSnapshot, updateDoc, serverTimestamp, setDoc, getDoc } from 'firebase/firestore';
+import { collection, doc, addDoc, onSnapshot, updateDoc, serverTimestamp, setDoc, getDoc, query, orderBy } from 'firebase/firestore';
 import { db, OperationType, handleFirestoreError } from '../firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
-  Video, VideoOff, Mic, MicOff, Monitor, StopCircle, PlayCircle, X, Copy, Check, PhoneOff, PhoneCall 
+  Video, VideoOff, Mic, MicOff, Monitor, StopCircle, PlayCircle, X, Copy, Check, PhoneOff, PhoneCall, Send, Link as LinkIcon, MessageSquare, ExternalLink, Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface VideoCallProps {
   clientId?: string;
@@ -28,6 +31,11 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
   const [callId, setCallId] = useState<string | null>(initialCallId || null);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<'idle' | 'calling' | 'connected' | 'ended'>('idle');
+  const [sessionMessages, setSessionMessages] = useState<any[]>([]);
+  const [sessionLinks, setSessionLinks] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [newLinkTitle, setNewLinkTitle] = useState('');
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -63,11 +71,31 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
 
     init();
 
+    if (callId) {
+      const messagesRef = collection(db, 'calls', callId, 'messages');
+      const linksRef = collection(db, 'calls', callId, 'links');
+
+      const unsubMessages = onSnapshot(query(messagesRef, orderBy('createdAt', 'asc')), (snapshot) => {
+        setSessionMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
+      const unsubLinks = onSnapshot(query(linksRef, orderBy('createdAt', 'desc')), (snapshot) => {
+        setSessionLinks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
+      return () => {
+        localStream?.getTracks().forEach(track => track.stop());
+        peerConnection.current?.close();
+        unsubMessages();
+        unsubLinks();
+      };
+    }
+
     return () => {
       localStream?.getTracks().forEach(track => track.stop());
       peerConnection.current?.close();
     };
-  }, []);
+  }, [callId]);
 
   const createCall = async () => {
     if (!localStream) return;
@@ -307,6 +335,34 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const sendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !callId) return;
+
+    await addDoc(collection(db, 'calls', callId, 'messages'), {
+      text: newMessage,
+      senderId: user.uid,
+      senderName: user.displayName || user.email,
+      createdAt: serverTimestamp()
+    });
+    setNewMessage('');
+  };
+
+  const shareLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLinkUrl.trim() || !callId) return;
+
+    await addDoc(collection(db, 'calls', callId, 'links'), {
+      url: newLinkUrl,
+      title: newLinkTitle || newLinkUrl,
+      senderId: user.uid,
+      senderName: user.displayName || user.email,
+      createdAt: serverTimestamp()
+    });
+    setNewLinkUrl('');
+    setNewLinkTitle('');
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
       <Card className="w-full max-w-5xl bg-slate-950 border-slate-800 shadow-2xl overflow-hidden">
@@ -436,46 +492,137 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
             </div>
 
             {/* Sidebar / Info */}
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500">Session Details</h4>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-                  <div>
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Client</p>
-                    <p className="text-sm font-medium text-white">{clientName || 'Direct Session'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Host</p>
-                    <p className="text-sm font-medium text-white">{user.displayName}</p>
-                  </div>
-                </div>
-              </div>
+            <div className="space-y-6 flex flex-col h-full max-h-[600px]">
+              <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0">
+                <TabsList className="bg-slate-900 border border-slate-800 p-1">
+                  <TabsTrigger value="chat" className="data-[state=active]:bg-slate-800">Chat</TabsTrigger>
+                  <TabsTrigger value="links" className="data-[state=active]:bg-slate-800">Links</TabsTrigger>
+                  <TabsTrigger value="info" className="data-[state=active]:bg-slate-800">Info</TabsTrigger>
+                </TabsList>
 
-              {callId && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500">Share Access</h4>
-                  <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-3">
-                    <p className="text-[10px] text-blue-400 font-medium">Send this link to the client to join the session.</p>
-                    <div className="flex items-center space-x-2">
-                      <div className="flex-1 bg-slate-950 border border-slate-800 rounded-md p-2 text-[10px] text-slate-400 truncate">
-                        {`${window.location.origin}?callId=${callId}`}
-                      </div>
-                      <Button size="icon" variant="ghost" onClick={copyLink} className="h-8 w-8 text-slate-400 hover:text-white">
-                        {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                <TabsContent value="chat" className="flex-1 flex flex-col min-h-0 mt-4">
+                  <ScrollArea className="flex-1 pr-4 mb-4">
+                    <div className="space-y-3">
+                      {sessionMessages.map((m) => (
+                        <div key={m.id} className={`flex flex-col ${m.senderId === user.uid ? 'items-end' : 'items-start'}`}>
+                          <span className="text-[10px] text-slate-500 mb-1">{m.senderName}</span>
+                          <div className={`px-3 py-2 rounded-2xl text-xs max-w-[80%] ${m.senderId === user.uid ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200'}`}>
+                            {m.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  <form onSubmit={sendMessage} className="flex space-x-2">
+                    <Input 
+                      value={newMessage} 
+                      onChange={(e) => setNewMessage(e.target.value)} 
+                      placeholder="Type a message..." 
+                      className="bg-slate-900 border-slate-800 text-white text-xs h-9"
+                    />
+                    <Button type="submit" size="icon" className="h-9 w-9 bg-blue-600 hover:bg-blue-500 shrink-0">
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </form>
+                </TabsContent>
+
+                <TabsContent value="links" className="flex-1 flex flex-col min-h-0 mt-4">
+                  <ScrollArea className="flex-1 pr-4 mb-4">
+                    <div className="space-y-3">
+                      {sessionLinks.map((l) => (
+                        <div key={l.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 group relative">
+                          <p className="text-xs font-bold text-white truncate pr-6">{l.title}</p>
+                          <a 
+                            href={l.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-[10px] text-blue-400 hover:underline truncate block mt-1"
+                          >
+                            {l.url}
+                          </a>
+                          <span className="text-[8px] text-slate-500 mt-2 block italic">Shared by {l.senderName}</span>
+                          <a 
+                            href={l.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-white"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                      ))}
+                      {sessionLinks.length === 0 && (
+                        <div className="py-8 text-center text-slate-500">
+                          <LinkIcon className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                          <p className="text-xs">No links shared yet</p>
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
+                  <form onSubmit={shareLink} className="space-y-2">
+                    <Input 
+                      value={newLinkTitle} 
+                      onChange={(e) => setNewLinkTitle(e.target.value)} 
+                      placeholder="Link title (optional)" 
+                      className="bg-slate-900 border-slate-800 text-white text-xs h-8"
+                    />
+                    <div className="flex space-x-2">
+                      <Input 
+                        value={newLinkUrl} 
+                        onChange={(e) => setNewLinkUrl(e.target.value)} 
+                        placeholder="Paste URL here..." 
+                        className="bg-slate-900 border-slate-800 text-white text-xs h-9"
+                        required
+                      />
+                      <Button type="submit" size="icon" className="h-9 w-9 bg-blue-600 hover:bg-blue-500 shrink-0">
+                        <Plus className="h-4 w-4" />
                       </Button>
                     </div>
-                  </div>
-                </div>
-              )}
+                  </form>
+                </TabsContent>
 
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500">Recording Info</h4>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-                  <p className="text-[10px] text-slate-400 leading-relaxed">
-                    Recording captures both audio and video streams. The file will be downloaded automatically when you stop recording.
-                  </p>
-                </div>
-              </div>
+                <TabsContent value="info" className="flex-1 space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Session Details</h4>
+                    <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold">Client</p>
+                        <p className="text-sm font-medium text-white">{clientName || 'Direct Session'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold">Host</p>
+                        <p className="text-sm font-medium text-white">{user.displayName || user.email}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {callId && (
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Share Access</h4>
+                      <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-3">
+                        <p className="text-[10px] text-blue-400 font-medium">Send this link to the client to join the session.</p>
+                        <div className="flex items-center space-x-2">
+                          <div className="flex-1 bg-slate-950 border border-slate-800 rounded-md p-2 text-[10px] text-slate-400 truncate">
+                            {`${window.location.origin}?callId=${callId}`}
+                          </div>
+                          <Button size="icon" variant="ghost" onClick={copyLink} className="h-8 w-8 text-slate-400 hover:text-white">
+                            {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Recording Info</h4>
+                    <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        Recording captures both audio and video streams. The file will be downloaded automatically when you stop recording.
+                      </p>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </div>
           </div>
         </CardContent>

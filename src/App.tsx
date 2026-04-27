@@ -5,9 +5,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where, limit } from 'firebase/firestore';
 import { auth, db, signIn, logOut, signUpWithEmail, signInWithEmail, resetPassword, OperationType, handleFirestoreError } from './firebase';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Toaster, toast } from 'sonner';
 import { VideoCall } from './components/VideoCall';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,7 +74,19 @@ interface Contract {
   title: string;
   clientId: string;
   status: 'Draft' | 'Sent' | 'Signed' | 'Expired';
+  content?: string;
   fileUrl?: string;
+  initials?: string;
+  signature?: string;
+  dateSigned?: string;
+  signedAt?: any;
+  createdAt: any;
+}
+
+interface ContractTemplate {
+  id: string;
+  title: string;
+  content: string;
   createdAt: any;
 }
 
@@ -87,6 +100,7 @@ interface Payment {
   type?: 'Deposit' | 'Installment' | 'Final Payment' | 'Other';
   date: string;
   description?: string;
+  notes?: string;
   createdAt: any;
 }
 
@@ -106,9 +120,20 @@ interface ScheduledSession {
   title: string;
   startTime: any;
   duration?: number;
-  status: 'Scheduled' | 'Active' | 'Completed' | 'Cancelled';
+  status: 'Requested' | 'Accepted' | 'Declined' | 'Active' | 'Completed' | 'Cancelled';
   createdAt: any;
   createdBy: string;
+}
+
+interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'message' | 'session' | 'contract' | 'payment';
+  link?: string;
+  read: boolean;
+  createdAt: any;
 }
 
 interface Message {
@@ -134,8 +159,36 @@ function CRMApp() {
   const [qnas, setQnas] = useState<QnA[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [contractTemplates, setContractTemplates] = useState<ContractTemplate[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  const sendNotification = async (userId: string, title: string, message: string, type: Notification['type'], link?: string) => {
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        userId,
+        title,
+        message,
+        type,
+        link: link || '',
+        read: false,
+        createdAt: serverTimestamp()
+      });
+
+      // NOTE: To send real email notifications, you would integrate a service like Resend or SendGrid here.
+      // Example:
+      // await fetch('/api/send-email', { 
+      //   method: 'POST', 
+      //   body: JSON.stringify({ to: userEmail, subject: title, text: message }) 
+      // });
+      console.log(`Notification sent to ${userId}: ${title}`);
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
+  };
   const [activeCall, setActiveCall] = useState<{ clientId?: string, clientName?: string, callId?: string } | null>(null);
+  const [incomingCall, setIncomingCall] = useState<any>(null);
+  const [lastNotificationId, setLastNotificationId] = useState<string | null>(null);
 
   // Event listener for setting active call from child views
   useEffect(() => {
@@ -162,7 +215,7 @@ function CRMApp() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        if (currentUser.email === 'allie.pakele@gmail.com') {
+        if (currentUser.email === 'allie.pakele@gmail.com' || currentUser.email === 'allie@vibesandvolumes.com') {
           setRole('admin');
         } else {
           setRole('client');
@@ -175,6 +228,62 @@ function CRMApp() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Notification Toast Trigger
+  useEffect(() => {
+    if (notifications.length > 0) {
+      const latest = notifications[0];
+      if (latest.id !== lastNotificationId) {
+        toast(latest.title, {
+          description: latest.message,
+          action: {
+            label: 'View',
+            onClick: () => {
+              // Logic to open notifications dialog or specific tab
+              const trigger = document.querySelector('[label="Notifications"]') as HTMLElement;
+              if (trigger) trigger.click();
+            }
+          }
+        });
+        setLastNotificationId(latest.id);
+      }
+    }
+  }, [notifications, lastNotificationId]);
+
+  // Incoming Call Listener
+  useEffect(() => {
+    if (!user || !role) return;
+
+    const callsQuery = role === 'admin' 
+      ? query(collection(db, 'calls'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1))
+      : query(collection(db, 'calls'), where('clientId', '==', user.uid), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1));
+
+    const unsubscribe = onSnapshot(callsQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data() as any;
+        const callData = { id: snapshot.docs[0].id, ...data };
+        // Don't show if we created it
+        if (callData.createdBy !== user.uid) {
+          setIncomingCall(callData);
+          toast.info('Incoming Video Call', {
+            description: 'A live session has started.',
+            duration: 10000,
+            action: {
+              label: 'Join',
+              onClick: () => {
+                setActiveCall({ callId: callData.id });
+                setIncomingCall(null);
+              }
+            }
+          });
+        }
+      } else {
+        setIncomingCall(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user, role]);
 
   // Data Listeners
   useEffect(() => {
@@ -212,6 +321,16 @@ function CRMApp() {
       unsubscribes.push(onSnapshot(messagesQuery, (snapshot) => {
         setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
       }, (error) => handleFirestoreError(error, OperationType.LIST, 'messages')));
+
+      const notificationsQuery = query(collection(db, 'notifications'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(notificationsQuery, (snapshot) => {
+        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification)));
+      }, (error) => handleFirestoreError(error, OperationType.LIST, 'notifications')));
+
+      const templatesQuery = query(collection(db, 'contractTemplates'), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(templatesQuery, (snapshot) => {
+        setContractTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ContractTemplate)));
+      }, (error) => handleFirestoreError(error, OperationType.LIST, 'contractTemplates')));
     } else {
       // Client role: find linked client by email
       const clientQuery = query(collection(db, 'clients'), where('email', '==', user.email));
@@ -227,15 +346,96 @@ function CRMApp() {
           setLinkedClient(null);
         }
       }, (error) => handleFirestoreError(error, OperationType.LIST, 'clients')));
-
-      const sessionsQuery = query(collection(db, 'scheduledSessions'), where('clientId', '==', user.uid));
-      unsubscribes.push(onSnapshot(sessionsQuery, (snapshot) => {
-        setScheduledSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ScheduledSession)));
-      }, (error) => handleFirestoreError(error, OperationType.LIST, 'scheduledSessions')));
     }
 
     return () => unsubscribes.forEach(unsub => unsub());
   }, [user, role]);
+
+  // Seed NDA Template
+  useEffect(() => {
+    if (role === 'admin' && contractTemplates.length === 0) {
+      const ndaExists = contractTemplates.some(t => t.title === 'Mutual Non-Disclosure Agreement');
+      if (!ndaExists) {
+        const seedNDA = async () => {
+          try {
+            await addDoc(collection(db, 'contractTemplates'), {
+              title: 'Mutual Non-Disclosure Agreement',
+              content: `MUTUAL NON-DISCLOSURE AGREEMENT
+
+This Mutual Non-Disclosure Agreement (the "Agreement") is entered into as of [DATE], by and between AMBIX ALLIE ("Disclosing Party") and [CLIENT NAME] ("Receiving Party").
+
+1. Purpose
+The parties wish to explore a business opportunity of mutual interest and in connection with this opportunity, each party may disclose to the other certain confidential technical and business information.
+
+2. Confidential Information
+Confidential Information means any information disclosed by either party to the other party, either directly or indirectly, in writing, orally or by inspection of tangible objects.
+
+3. Obligations
+The Receiving Party shall:
+(a) hold the Confidential Information in strict confidence;
+(b) use the Confidential Information only for the Purpose;
+(c) not disclose the Confidential Information to any third party without prior written consent.
+
+4. Term
+This Agreement shall remain in effect for a period of two (2) years from the date of disclosure.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first above written.
+
+AMBIX ALLIE: ____________________
+Client: ____________________`,
+              createdAt: serverTimestamp()
+            });
+          } catch (error) {
+            console.error('Error seeding NDA template:', error);
+          }
+        };
+        seedNDA();
+      }
+    }
+  }, [role, contractTemplates]);
+
+  // Seed NDA Template
+  useEffect(() => {
+    if (role === 'admin' && contractTemplates.length === 0) {
+      const ndaExists = contractTemplates.some(t => t.title === 'Mutual Non-Disclosure Agreement');
+      if (!ndaExists) {
+        const seedNDA = async () => {
+          try {
+            await addDoc(collection(db, 'contractTemplates'), {
+              title: 'Mutual Non-Disclosure Agreement',
+              content: `MUTUAL NON-DISCLOSURE AGREEMENT
+
+This Mutual Non-Disclosure Agreement (the "Agreement") is entered into as of [DATE], by and between AMBIX ALLIE ("Disclosing Party") and [CLIENT NAME] ("Receiving Party").
+
+1. Purpose
+The parties wish to explore a business opportunity of mutual interest and in connection with this opportunity, each party may disclose to the other certain confidential technical and business information.
+
+2. Confidential Information
+Confidential Information means any information disclosed by either party to the other party, either directly or indirectly, in writing, orally or by inspection of tangible objects.
+
+3. Obligations
+The Receiving Party shall:
+(a) hold the Confidential Information in strict confidence;
+(b) use the Confidential Information only for the Purpose;
+(c) not disclose the Confidential Information to any third party without prior written consent.
+
+4. Term
+This Agreement shall remain in effect for a period of two (2) years from the date of disclosure.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first above written.
+
+AMBIX ALLIE: ____________________
+Client: ____________________`,
+              createdAt: serverTimestamp()
+            });
+          } catch (error) {
+            console.error('Error seeding NDA template:', error);
+          }
+        };
+        seedNDA();
+      }
+    }
+  }, [role, contractTemplates]);
 
   // Client Specific Listeners
   useEffect(() => {
@@ -266,12 +466,24 @@ function CRMApp() {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'messages'));
 
+    const notificationsQuery = query(collection(db, 'notifications'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+    const unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+      setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'notifications'));
+
+    const sessionsQuery = query(collection(db, 'scheduledSessions'), where('clientId', '==', linkedClient.id), orderBy('startTime', 'asc'));
+    const unsubscribeSessions = onSnapshot(sessionsQuery, (snapshot) => {
+      setScheduledSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ScheduledSession)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'scheduledSessions'));
+
     return () => {
       unsubscribeProjects();
       unsubscribeContracts();
       unsubscribePayments();
       unsubscribeQna();
       unsubscribeMessages();
+      unsubscribeNotifications();
+      unsubscribeSessions();
     };
   }, [user, role, linkedClient]);
 
@@ -299,7 +511,10 @@ function CRMApp() {
           qnas={qnas}
           scheduledSessions={scheduledSessions}
           messages={messages}
+          notifications={notifications}
+          sendNotification={sendNotification}
           onStartCall={setActiveCall}
+          incomingCall={incomingCall}
         />
         {activeCall && (
           <VideoCall 
@@ -310,6 +525,7 @@ function CRMApp() {
             onClose={() => setActiveCall(null)} 
           />
         )}
+        <Toaster position="top-right" expand={true} richColors />
       </div>
     );
   }
@@ -365,8 +581,17 @@ function CRMApp() {
             active={activeTab === 'messages'} 
             onClick={() => setActiveTab('messages')} 
           />
+          <SidebarLink 
+            icon={<FileText className="h-5 w-5" />} 
+            label="Templates" 
+            active={activeTab === 'templates'} 
+            onClick={() => setActiveTab('templates')} 
+          />
         </nav>
         <div className="absolute bottom-0 w-full border-t border-slate-100 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <NotificationBell notifications={notifications} />
+          </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="h-8 w-8 rounded-full border border-slate-200 bg-slate-100 flex items-center justify-center overflow-hidden">
@@ -391,13 +616,14 @@ function CRMApp() {
       {/* Main Content */}
       <main className="ml-64 flex-1 p-8">
         <AnimatePresence mode="wait">
-          {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} onStartCall={setActiveCall} />}
-          {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} />}
+          {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} />}
+          {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'tasks' && <TasksView tasks={tasks} projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
           {activeTab === 'payments' && <PaymentsAnalyticsView payments={payments} clients={clients} projects={projects} />}
-          {activeTab === 'sessions' && <SessionsView sessions={scheduledSessions} clients={clients} user={user} onStartCall={setActiveCall} />}
+          {activeTab === 'sessions' && <SessionsView sessions={scheduledSessions} clients={clients} user={user} role={role} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'messages' && <MessagesView messages={messages} clients={clients} user={user} />}
+          {activeTab === 'templates' && <ContractTemplatesView templates={contractTemplates} clients={clients} user={user} sendNotification={sendNotification} />}
         </AnimatePresence>
       </main>
 
@@ -410,10 +636,501 @@ function CRMApp() {
           onClose={() => setActiveCall(null)} 
         />
       )}
+      <Toaster position="top-right" expand={true} richColors />
     </div>
   );
 }
 
+function ContractTemplatesView({ templates, clients, user, sendNotification }: { templates: ContractTemplate[], clients: Client[], user: User, sendNotification: any }) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<ContractTemplate | null>(null);
+  const [sendingTemplate, setSendingTemplate] = useState<ContractTemplate | null>(null);
+  const [form, setForm] = useState({ title: '', content: '' });
+  const [sendForm, setSendForm] = useState({ clientId: '', content: '' });
+
+  const handleSave = async () => {
+    if (!form.title || !form.content) return;
+    try {
+      if (editingTemplate) {
+        await updateDoc(doc(db, 'contractTemplates', editingTemplate.id), {
+          ...form
+        });
+      } else {
+        await addDoc(collection(db, 'contractTemplates'), {
+          ...form,
+          createdAt: serverTimestamp()
+        });
+      }
+      setIsAddOpen(false);
+      setEditingTemplate(null);
+      setForm({ title: '', content: '' });
+    } catch (error) {
+      console.error('Error saving template:', error);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!sendForm.clientId || !sendForm.content || !sendingTemplate) return;
+    const client = clients.find(c => c.id === sendForm.clientId);
+    if (!client) return;
+
+    try {
+      await addDoc(collection(db, 'contracts'), {
+        title: sendingTemplate.title,
+        clientId: client.id,
+        content: sendForm.content,
+        status: 'Sent',
+        createdAt: serverTimestamp()
+      });
+
+      if (client.uid) {
+        await sendNotification(
+          client.uid,
+          'New Contract Sent',
+          `A new contract "${sendingTemplate.title}" is ready for your signature.`,
+          'contract'
+        );
+      }
+
+      setSendingTemplate(null);
+      setSendForm({ clientId: '', content: '' });
+    } catch (error) {
+      console.error('Error sending contract:', error);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Contract Templates</h2>
+          <p className="text-slate-500 text-sm">Manage reusable legal documents and send them to clients.</p>
+        </div>
+        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white">
+          <Plus className="mr-2 h-4 w-4" /> Create Template
+        </Button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {templates.map(template => (
+          <Card key={template.id} className="border-slate-200 shadow-sm flex flex-col">
+            <CardHeader>
+              <CardTitle className="text-lg font-bold">{template.title}</CardTitle>
+              <CardDescription className="line-clamp-3 text-xs">
+                {template.content}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1" />
+            <div className="p-6 pt-0 flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+                onClick={() => {
+                  setEditingTemplate(template);
+                  setForm({ title: template.title, content: template.content });
+                  setIsAddOpen(true);
+                }}
+              >
+                Edit
+              </Button>
+              <Button 
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white"
+                onClick={() => {
+                  setSendingTemplate(template);
+                  setSendForm({ clientId: '', content: template.content });
+                }}
+              >
+                Send
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={isAddOpen} onOpenChange={(open) => {
+        setIsAddOpen(open);
+        if (!open) {
+          setEditingTemplate(null);
+          setForm({ title: '', content: '' });
+        }
+      }}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create Template'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-2">
+              <Label>Template Title</Label>
+              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Standard NDA" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Contract Content</Label>
+              <textarea 
+                className="min-h-[300px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={form.content}
+                onChange={e => setForm({ ...form, content: e.target.value })}
+                placeholder="Enter contract text here..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} className="bg-slate-900 text-white">Save Template</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Dialog */}
+      <Dialog open={!!sendingTemplate} onOpenChange={(open) => !open && setSendingTemplate(null)}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Send Contract: {sendingTemplate?.title}</DialogTitle>
+            <DialogDescription>Review and edit the contract details before sending to the client.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-2">
+              <Label>Select Client</Label>
+              <Select value={sendForm.clientId} onValueChange={(v) => setSendForm({ ...sendForm, clientId: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a client" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Contract Content (Final Edit)</Label>
+              <textarea 
+                className="min-h-[300px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={sendForm.content}
+                onChange={e => setSendForm({ ...sendForm, content: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendingTemplate(null)}>Cancel</Button>
+            <Button onClick={handleSend} className="bg-blue-600 hover:bg-blue-500 text-white">Send to Client</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ContractSigningDialog({ contract, onSign }: { contract: Contract, onSign: (data: any) => Promise<void> }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [signingData, setSigningData] = useState({ initials: '', signature: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSign = async () => {
+    if (!signingData.initials || !signingData.signature) return;
+    setIsSubmitting(true);
+    try {
+      await onSign(signingData);
+      setIsOpen(false);
+    } catch (error) {
+      console.error('Error signing:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger render={<Button size="sm" className="bg-blue-600 hover:bg-blue-500 text-white">Sign Contract</Button>} />
+      <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Review & Sign: {contract.title}</DialogTitle>
+          <DialogDescription>Please review the contract content below and provide your signature.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="flex-1 border rounded-lg p-6 bg-slate-50 my-4">
+          <div className="prose prose-slate max-w-none whitespace-pre-wrap text-sm">
+            {contract.content}
+          </div>
+        </ScrollArea>
+        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+          <div className="grid gap-2">
+            <Label>Initials</Label>
+            <Input 
+              placeholder="e.g. JD" 
+              value={signingData.initials} 
+              onChange={e => setSigningData({ ...signingData, initials: e.target.value.toUpperCase() })} 
+              maxLength={3}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label>Full Name (Signature)</Label>
+            <Input 
+              placeholder="e.g. John Doe" 
+              value={signingData.signature} 
+              onChange={e => setSigningData({ ...signingData, signature: e.target.value })} 
+            />
+          </div>
+        </div>
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleSign} 
+            disabled={isSubmitting || !signingData.initials || !signingData.signature}
+            className="bg-slate-900 text-white"
+          >
+            {isSubmitting ? 'Signing...' : 'I Agree & Sign'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+function ContractTemplatesView({ templates, clients, user, sendNotification }: { templates: ContractTemplate[], clients: Client[], user: User, sendNotification: any }) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<ContractTemplate | null>(null);
+  const [sendingTemplate, setSendingTemplate] = useState<ContractTemplate | null>(null);
+  const [form, setForm] = useState({ title: '', content: '' });
+  const [sendForm, setSendForm] = useState({ clientId: '', content: '' });
+
+  const handleSave = async () => {
+    if (!form.title || !form.content) return;
+    try {
+      if (editingTemplate) {
+        await updateDoc(doc(db, 'contractTemplates', editingTemplate.id), {
+          ...form
+        });
+      } else {
+        await addDoc(collection(db, 'contractTemplates'), {
+          ...form,
+          createdAt: serverTimestamp()
+        });
+      }
+      setIsAddOpen(false);
+      setEditingTemplate(null);
+      setForm({ title: '', content: '' });
+    } catch (error) {
+      console.error('Error saving template:', error);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!sendForm.clientId || !sendForm.content || !sendingTemplate) return;
+    const client = clients.find(c => c.id === sendForm.clientId);
+    if (!client) return;
+
+    try {
+      await addDoc(collection(db, 'contracts'), {
+        title: sendingTemplate.title,
+        clientId: client.id,
+        content: sendForm.content,
+        status: 'Sent',
+        createdAt: serverTimestamp()
+      });
+
+      if (client.uid) {
+        await sendNotification(
+          client.uid,
+          'New Contract Sent',
+          `A new contract "${sendingTemplate.title}" is ready for your signature.`,
+          'contract'
+        );
+      }
+
+      setSendingTemplate(null);
+      setSendForm({ clientId: '', content: '' });
+    } catch (error) {
+      console.error('Error sending contract:', error);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Contract Templates</h2>
+          <p className="text-slate-500 text-sm">Manage reusable legal documents and send them to clients.</p>
+        </div>
+        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white">
+          <Plus className="mr-2 h-4 w-4" /> Create Template
+        </Button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {templates.map(template => (
+          <Card key={template.id} className="border-slate-200 shadow-sm flex flex-col">
+            <CardHeader>
+              <CardTitle className="text-lg font-bold">{template.title}</CardTitle>
+              <CardDescription className="line-clamp-3 text-xs">
+                {template.content}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1" />
+            <div className="p-6 pt-0 flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+                onClick={() => {
+                  setEditingTemplate(template);
+                  setForm({ title: template.title, content: template.content });
+                  setIsAddOpen(true);
+                }}
+              >
+                Edit
+              </Button>
+              <Button 
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white"
+                onClick={() => {
+                  setSendingTemplate(template);
+                  setSendForm({ clientId: '', content: template.content });
+                }}
+              >
+                Send
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={isAddOpen} onOpenChange={(open) => {
+        setIsAddOpen(open);
+        if (!open) {
+          setEditingTemplate(null);
+          setForm({ title: '', content: '' });
+        }
+      }}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create Template'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-2">
+              <Label>Template Title</Label>
+              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Standard NDA" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Contract Content</Label>
+              <textarea 
+                className="min-h-[300px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={form.content}
+                onChange={e => setForm({ ...form, content: e.target.value })}
+                placeholder="Enter contract text here..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} className="bg-slate-900 text-white">Save Template</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Dialog */}
+      <Dialog open={!!sendingTemplate} onOpenChange={(open) => !open && setSendingTemplate(null)}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Send Contract: {sendingTemplate?.title}</DialogTitle>
+            <DialogDescription>Review and edit the contract details before sending to the client.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-2">
+              <Label>Select Client</Label>
+              <Select value={sendForm.clientId} onValueChange={(v) => setSendForm({ ...sendForm, clientId: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a client" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Contract Content (Final Edit)</Label>
+              <textarea 
+                className="min-h-[300px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={sendForm.content}
+                onChange={e => setSendForm({ ...sendForm, content: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendingTemplate(null)}>Cancel</Button>
+            <Button onClick={handleSend} className="bg-blue-600 hover:bg-blue-500 text-white">Send to Client</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ContractSigningDialog({ contract, onSign }: { contract: Contract, onSign: (data: any) => Promise<void> }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [signingData, setSigningData] = useState({ initials: '', signature: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSign = async () => {
+    if (!signingData.initials || !signingData.signature) return;
+    setIsSubmitting(true);
+    try {
+      await onSign(signingData);
+      setIsOpen(false);
+    } catch (error) {
+      console.error('Error signing:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger render={<Button size="sm" className="bg-blue-600 hover:bg-blue-500 text-white">Sign Contract</Button>} />
+      <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Review & Sign: {contract.title}</DialogTitle>
+          <DialogDescription>Please review the contract content below and provide your signature.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="flex-1 border rounded-lg p-6 bg-slate-50 my-4">
+          <div className="prose prose-slate max-w-none whitespace-pre-wrap text-sm">
+            {contract.content}
+          </div>
+        </ScrollArea>
+        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+          <div className="grid gap-2">
+            <Label>Initials</Label>
+            <Input 
+              placeholder="e.g. JD" 
+              value={signingData.initials} 
+              onChange={e => setSigningData({ ...signingData, initials: e.target.value.toUpperCase() })} 
+              maxLength={3}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label>Full Name (Signature)</Label>
+            <Input 
+              placeholder="e.g. John Doe" 
+              value={signingData.signature} 
+              onChange={e => setSigningData({ ...signingData, signature: e.target.value })} 
+            />
+          </div>
+        </div>
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleSign} 
+            disabled={isSubmitting || !signingData.initials || !signingData.signature}
+            className="bg-slate-900 text-white"
+          >
+            {isSubmitting ? 'Signing...' : 'I Agree & Sign'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [email, setEmail] = useState('');
@@ -586,9 +1303,68 @@ function SidebarLink({ icon, label, active, onClick }: { icon: React.ReactNode, 
   );
 }
 
-function DashboardView({ clients, projects, tasks, onStartCall }: { clients: Client[], projects: Project[], tasks: Task[], onStartCall: (callData: any) => void }) {
+function NotificationBell({ notifications }: { notifications: Notification[] }) {
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const markAsRead = async (id: string) => {
+    await updateDoc(doc(db, 'notifications', id), { read: true });
+  };
+
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button variant="ghost" size="icon" className="relative text-slate-400 hover:text-slate-900" />}>
+        <div className="relative">
+          <Mail className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+              {unreadCount}
+            </span>
+          )}
+        </div>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Notifications</DialogTitle>
+          <DialogDescription>Stay updated with your latest activity.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="h-[400px] pr-4">
+          <div className="space-y-4">
+            {notifications.length === 0 ? (
+              <div className="py-8 text-center text-slate-400">
+                <p>No notifications yet.</p>
+              </div>
+            ) : (
+              notifications.map(n => (
+                <div 
+                  key={n.id} 
+                  className={`p-3 rounded-xl border transition-all cursor-pointer ${n.read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100'}`}
+                  onClick={() => markAsRead(n.id)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Badge variant="outline" className="text-[10px] uppercase">{n.type}</Badge>
+                      {!n.read && <div className="h-2 w-2 rounded-full bg-blue-500" />}
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      {n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}
+                    </span>
+                  </div>
+                  <h4 className="mt-1 font-bold text-sm text-slate-900">{n.title}</h4>
+                  <p className="text-xs text-slate-500 mt-1">{n.message}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomingCall }: { clients: Client[], projects: Project[], tasks: Task[], sessions: ScheduledSession[], onStartCall: (callData: any) => void, incomingCall?: any }) {
   const activeProjects = projects.filter(p => p.status !== 'Completed');
   const pendingTasks = tasks.filter(t => t.status !== 'Done');
+  const sessionRequests = sessions.filter(s => s.status === 'Requested');
   
   return (
     <motion.div 
@@ -602,11 +1378,69 @@ function DashboardView({ clients, projects, tasks, onStartCall }: { clients: Cli
         <p className="text-slate-500">Overview of Ambix Allie's current operations.</p>
       </header>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      {incomingCall && (
+        <Card className="border-blue-200 bg-blue-50 shadow-md animate-pulse">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-bold text-blue-900 flex items-center">
+              <Video className="mr-2 h-5 w-5 animate-bounce" /> Live Session Started!
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-blue-800">A client is waiting for you in a live video room.</p>
+              <p className="text-xs text-blue-600 mt-1">Join now to start the session.</p>
+            </div>
+            <Button 
+              size="lg" 
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-200"
+              onClick={() => onStartCall({ callId: incomingCall.id })}
+            >
+              Join Session
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-4">
         <StatCard title="Total Clients" value={clients.length} icon={<Users className="h-5 w-5" />} />
         <StatCard title="Active Projects" value={activeProjects.length} icon={<Briefcase className="h-5 w-5" />} />
         <StatCard title="Pending Tasks" value={pendingTasks.length} icon={<CheckSquare className="h-5 w-5" />} />
+        <StatCard title="Session Requests" value={sessionRequests.length} icon={<Video className="h-5 w-5" />} />
       </div>
+
+      {sessionRequests.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-bold text-amber-900 flex items-center">
+              <Clock className="mr-2 h-5 w-5" /> Pending Session Requests
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {sessionRequests.map(s => (
+                <div key={s.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-amber-100 shadow-sm">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{s.title}</p>
+                    <p className="text-xs text-slate-500">{s.clientName} • {new Date(s.startTime).toLocaleString()}</p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <Button 
+                      size="sm" 
+                      className="bg-slate-900 text-white"
+                      onClick={() => {
+                        const trigger = document.querySelector('[label="Sessions"]') as HTMLElement;
+                        if (trigger) trigger.click();
+                      }}
+                    >
+                      Manage
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="border-slate-200 shadow-sm">
@@ -707,7 +1541,7 @@ function StatCard({ title, value, icon }: { title: string, value: number, icon: 
   );
 }
 
-function ClientsView({ clients, user, onStartCall }: { clients: Client[], user: User, onStartCall: (callData: any) => void }) {
+function ClientsView({ clients, user, onStartCall, sendNotification }: { clients: Client[], user: User, onStartCall: (callData: any) => void, sendNotification: any }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [managingClient, setManagingClient] = useState<Client | null>(null);
@@ -979,13 +1813,14 @@ function ClientsView({ clients, user, onStartCall }: { clients: Client[], user: 
           client={managingClient} 
           onClose={() => setManagingClient(null)} 
           user={user}
+          sendNotification={sendNotification}
         />
       )}
     </motion.div>
   );
 }
 
-function ManageClientDialog({ client, onClose, user }: { client: Client, onClose: () => void, user: User }) {
+function ManageClientDialog({ client, onClose, user, sendNotification }: { client: Client, onClose: () => void, user: User, sendNotification: any }) {
   const [activeTab, setActiveTab] = useState('contracts');
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -997,6 +1832,7 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
     projectId: '',
     type: 'Installment' as const,
     description: '',
+    notes: '',
     date: new Date().toISOString().split('T')[0]
   });
 
@@ -1031,13 +1867,28 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
 
   const addContract = async () => {
     const title = prompt('Contract Title:');
+    const fileUrl = prompt('Contract URL (optional):');
     if (!title) return;
-    await addDoc(collection(db, 'contracts'), {
-      title,
-      clientId: client.id,
-      status: 'Draft',
-      createdAt: serverTimestamp()
-    });
+    try {
+      await addDoc(collection(db, 'contracts'), {
+        title,
+        clientId: client.id,
+        status: 'Sent',
+        fileUrl: fileUrl || '',
+        createdAt: serverTimestamp()
+      });
+
+      if (client.uid) {
+        await sendNotification(
+          client.uid,
+          'New Contract Available',
+          `A new contract "${title}" has been sent to your portal.`,
+          'contract'
+        );
+      }
+    } catch (error) {
+      console.error('Error adding contract:', error);
+    }
   };
 
   const handleAddPayment = async () => {
@@ -1083,6 +1934,7 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
         projectId: '',
         type: 'Installment',
         description: '',
+        notes: '',
         date: new Date().toISOString().split('T')[0]
       });
     } catch (error) {
@@ -1134,9 +1986,46 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
                 <TableBody>
                   {contracts.map(c => (
                     <TableRow key={c.id}>
-                      <TableCell>{c.title}</TableCell>
-                      <TableCell><Badge variant="outline">{c.status}</Badge></TableCell>
-                      <TableCell className="text-right">
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{c.title}</span>
+                          {c.status === 'Signed' && (
+                            <span className="text-[10px] text-green-600">Signed by {c.signature} on {c.dateSigned}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell><Badge variant={c.status === 'Signed' ? 'default' : 'outline'}>{c.status}</Badge></TableCell>
+                      <TableCell className="text-right space-x-1">
+                        <Dialog>
+                          <DialogTrigger render={<Button variant="ghost" size="icon"><Search className="h-4 w-4" /></Button>} />
+                          <DialogContent className="sm:max-w-[700px] max-h-[80vh] flex flex-col">
+                            <DialogHeader>
+                              <DialogTitle>{c.title}</DialogTitle>
+                              <DialogDescription>Status: {c.status}</DialogDescription>
+                            </DialogHeader>
+                            <ScrollArea className="flex-1 border rounded p-4 bg-slate-50 my-2">
+                              <div className="prose prose-slate max-w-none whitespace-pre-wrap text-xs">
+                                {c.content || "No content available."}
+                              </div>
+                            </ScrollArea>
+                            {c.status === 'Signed' && (
+                              <div className="grid grid-cols-3 gap-4 border-t pt-4 text-xs">
+                                <div>
+                                  <p className="font-bold uppercase text-slate-400">Initials</p>
+                                  <p className="text-lg font-mono">{c.initials}</p>
+                                </div>
+                                <div>
+                                  <p className="font-bold uppercase text-slate-400">Signature</p>
+                                  <p className="text-lg italic font-serif">{c.signature}</p>
+                                </div>
+                                <div>
+                                  <p className="font-bold uppercase text-slate-400">Date Signed</p>
+                                  <p className="text-lg">{c.dateSigned}</p>
+                                </div>
+                              </div>
+                            )}
+                          </DialogContent>
+                        </Dialog>
                         <Button variant="ghost" size="icon" onClick={() => deleteDoc(doc(db, 'contracts', c.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
                       </TableCell>
                     </TableRow>
@@ -1194,6 +2083,14 @@ function ManageClientDialog({ client, onClose, user }: { client: Client, onClose
                     <div className="grid gap-2">
                       <Label>Date</Label>
                       <Input type="date" value={paymentForm.date} onChange={e => setPaymentForm({ ...paymentForm, date: e.target.value })} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Payment Notes (visible to client)</Label>
+                      <Input 
+                        placeholder="e.g. Paid via Stripe, includes tax, etc." 
+                        value={paymentForm.notes} 
+                        onChange={e => setPaymentForm({ ...paymentForm, notes: e.target.value })} 
+                      />
                     </div>
                     <div className="grid gap-2">
                       <Label>Description</Label>
@@ -2030,11 +2927,13 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
   );
 }
 
-function SessionsView({ sessions, clients, user, onStartCall, isClientView = false }: { 
+function SessionsView({ sessions, clients, user, role, onStartCall, sendNotification, isClientView = false }: { 
   sessions: ScheduledSession[], 
   clients: Client[], 
   user: User, 
+  role: string | null,
   onStartCall: (callData: any) => void,
+  sendNotification: any,
   isClientView?: boolean
 }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -2053,7 +2952,7 @@ function SessionsView({ sessions, clients, user, onStartCall, isClientView = fal
     await addDoc(collection(db, 'scheduledSessions'), {
       ...newSession,
       clientName: client?.name || 'Unknown',
-      status: 'Scheduled',
+      status: 'Accepted',
       createdAt: serverTimestamp(),
       createdBy: user.uid
     });
@@ -2063,7 +2962,47 @@ function SessionsView({ sessions, clients, user, onStartCall, isClientView = fal
   };
 
   const handleStatusChange = async (id: string, status: string) => {
-    await updateDoc(doc(db, 'scheduledSessions', id), { status });
+    try {
+      await updateDoc(doc(db, 'scheduledSessions', id), { status });
+      
+      const session = sessions.find(s => s.id === id);
+      if (!session) return;
+
+      if (status === 'Accepted' || status === 'Declined') {
+        const client = clients.find(c => c.id === session.clientId);
+        if (client && client.uid) {
+          await sendNotification(
+            client.uid,
+            `Session ${status}`,
+            `Your session request "${session.title}" has been ${status.toLowerCase()}.`,
+            'session'
+          );
+        }
+      } else if (status === 'Active') {
+        if (role === 'client') {
+          // Notify admin
+          await sendNotification(
+            'allie.pakele@gmail.com', // Admin email/UID
+            'Client Started Session',
+            `${session.clientName} is starting the session: ${session.title}`,
+            'session'
+          );
+        } else {
+          // Notify client
+          const client = clients.find(c => c.id === session.clientId);
+          if (client && client.uid) {
+            await sendNotification(
+              client.uid,
+              'Session Started',
+              `Allie is starting your session: ${session.title}. Click to join!`,
+              'session'
+            );
+          }
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'scheduledSessions');
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -2155,7 +3094,9 @@ function SessionsView({ sessions, clients, user, onStartCall, isClientView = fal
           <Card key={session.id} className="border-slate-200 shadow-sm overflow-hidden">
             <div className={`h-2 ${
               session.status === 'Active' ? 'bg-green-500' : 
-              session.status === 'Scheduled' ? 'bg-blue-500' : 
+              session.status === 'Accepted' ? 'bg-blue-500' : 
+              session.status === 'Requested' ? 'bg-amber-500' :
+              session.status === 'Declined' ? 'bg-red-500' :
               'bg-slate-300'
             }`} />
             <CardHeader className="pb-2">
@@ -2182,23 +3123,50 @@ function SessionsView({ sessions, clients, user, onStartCall, isClientView = fal
                 {session.duration} minutes
               </div>
               
-              <div className="pt-4 flex space-x-2">
-                {session.status === 'Scheduled' || session.status === 'Active' ? (
-                  <Button 
-                    className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
-                    onClick={() => startSession(session)}
-                  >
-                    <Video className="mr-2 h-4 w-4" /> {session.status === 'Active' ? 'Join Session' : 'Start Session'}
-                  </Button>
-                ) : (
-                  <Button variant="outline" className="flex-1" disabled>
-                    Session {session.status}
+              <div className="pt-4 flex flex-col space-y-2">
+                {session.status === 'Requested' && !isClientView && (
+                  <div className="flex space-x-2">
+                    <Button 
+                      className="flex-1 bg-green-600 text-white hover:bg-green-500"
+                      onClick={() => handleStatusChange(session.id, 'Accepted')}
+                    >
+                      Accept
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                      onClick={() => handleStatusChange(session.id, 'Declined')}
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                )}
+
+                {(session.status === 'Accepted' || session.status === 'Active') && (
+                  <div className="flex space-x-2">
+                    <Button 
+                      className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
+                      onClick={() => startSession(session)}
+                    >
+                      <Video className="mr-2 h-4 w-4" /> {session.status === 'Active' ? 'Join Session' : 'Start Session'}
+                    </Button>
+                    {session.status === 'Active' && (
+                      <Button variant="outline" onClick={() => handleStatusChange(session.id, 'Completed')}>
+                        End
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {session.status === 'Requested' && isClientView && (
+                  <Button variant="outline" className="w-full" disabled>
+                    Waiting for Approval
                   </Button>
                 )}
-                
-                {session.status === 'Active' && (
-                  <Button variant="outline" onClick={() => handleStatusChange(session.id, 'Completed')}>
-                    End
+
+                {(session.status === 'Declined' || session.status === 'Completed' || session.status === 'Cancelled') && (
+                  <Button variant="outline" className="w-full" disabled>
+                    Session {session.status}
                   </Button>
                 )}
               </div>
@@ -2345,7 +3313,92 @@ function MessagesView({ messages, clients, user }: { messages: Message[], client
   );
 }
 
-function ClientPortal({ user, client, projects, contracts, payments, qnas, scheduledSessions, messages, onStartCall }: { 
+function ScheduleSessionDialog({ clientId, clientName, onScheduled }: { clientId: string, clientName: string, onScheduled: (data: any) => void }) {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [duration, setDuration] = useState('30');
+  const [open, setOpen] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const startTime = new Date(`${date}T${time}`);
+    onScheduled({ title, startTime, duration: parseInt(duration) });
+    setOpen(false);
+    setTitle('');
+    setDate('');
+    setTime('');
+    setDuration('30');
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button variant="outline" size="sm" className="hidden sm:flex border-blue-200 text-blue-600 hover:bg-blue-50" />}>
+        <Video className="mr-2 h-4 w-4" /> Schedule Live Session
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Schedule Live Session</DialogTitle>
+          <DialogDescription>Request a live session with Allie. She will review and confirm the time.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="session-title">Session Topic</Label>
+            <Input 
+              id="session-title" 
+              placeholder="e.g. Project Review, Strategy Call" 
+              value={title} 
+              onChange={(e) => setTitle(e.target.value)} 
+              required 
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="session-date">Date</Label>
+              <Input 
+                id="session-date" 
+                type="date" 
+                value={date} 
+                onChange={(e) => setDate(e.target.value)} 
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="session-time">Time</Label>
+              <Input 
+                id="session-time" 
+                type="time" 
+                value={time} 
+                onChange={(e) => setTime(e.target.value)} 
+                required 
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="session-duration">Duration (minutes)</Label>
+            <Select value={duration} onValueChange={setDuration}>
+              <SelectTrigger id="session-duration">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="45">45 minutes</SelectItem>
+                <SelectItem value="60">60 minutes</SelectItem>
+                <SelectItem value="90">90 minutes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="submit" className="bg-slate-900 text-white">Request Session</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClientPortal({ user, client, projects, contracts, payments, qnas, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall }: { 
   user: User, 
   client: Client | null, 
   projects: Project[], 
@@ -2354,7 +3407,10 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
   qnas: QnA[],
   scheduledSessions: ScheduledSession[],
   messages: Message[],
-  onStartCall: (callData: any) => void 
+  notifications: Notification[],
+  sendNotification: any,
+  onStartCall: (callData: any) => void,
+  incomingCall?: any
 }) {
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -2390,15 +3446,37 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => onStartCall({ clientId: client.id, clientName: client.name })}
-              className="hidden sm:flex border-blue-200 text-blue-600 hover:bg-blue-50"
-            >
-              <Video className="mr-2 h-4 w-4" /> Live Session
-            </Button>
+            <ScheduleSessionDialog 
+              clientId={client.id} 
+              clientName={client.name} 
+              onScheduled={async (data) => {
+                try {
+                  const sessionData = {
+                    clientId: client.id,
+                    clientName: client.name,
+                    title: data.title,
+                    startTime: data.startTime.toISOString(),
+                    duration: data.duration,
+                    status: 'Requested',
+                    createdAt: serverTimestamp(),
+                    createdBy: user.uid
+                  };
+                  await addDoc(collection(db, 'scheduledSessions'), sessionData);
+                  
+                  // Notify admin
+                  await sendNotification(
+                    'allie.pakele@gmail.com', // Using email as placeholder for admin UID if not available, but better to use real UID
+                    'New Session Request',
+                    `${client.name} has requested a session: ${data.title}`,
+                    'session'
+                  );
+                } catch (error) {
+                  console.error('Error scheduling session:', error);
+                }
+              }} 
+            />
             <div className="flex items-center space-x-3 border-l border-slate-200 pl-4">
+              <NotificationBell notifications={notifications} />
               <div className="h-8 w-8 rounded-full border border-slate-200 bg-slate-100 flex items-center justify-center overflow-hidden">
                 {user.photoURL ? (
                   <img src={user.photoURL} alt="" className="h-full w-full object-cover" />
@@ -2432,6 +3510,29 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
           </TabsList>
 
           <TabsContent value="overview" className="space-y-8">
+            {incomingCall && (
+              <Card className="border-blue-200 bg-blue-50 shadow-md animate-pulse">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg font-bold text-blue-900 flex items-center">
+                    <Video className="mr-2 h-5 w-5 animate-bounce" /> Live Session Active!
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-800">Allie has started the live video session.</p>
+                    <p className="text-xs text-blue-600 mt-1">Join now to participate.</p>
+                  </div>
+                  <Button 
+                    size="lg" 
+                    className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-200"
+                    onClick={() => onStartCall({ callId: incomingCall.id })}
+                  >
+                    Join Session
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="grid gap-6 md:grid-cols-3">
               <Card className="border-slate-200 shadow-sm">
                 <CardHeader className="pb-2">
@@ -2494,12 +3595,33 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                       <a href="mailto:allie.pakele@gmail.com" className="text-sm font-medium hover:text-blue-400 transition-colors">allie.pakele@gmail.com</a>
                     </div>
                   </div>
-                  <Button 
-                    onClick={() => onStartCall({ clientId: client.id, clientName: client.name })}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold"
-                  >
-                    <Video className="mr-2 h-4 w-4" /> Start Live Session
-                  </Button>
+                  <ScheduleSessionDialog 
+                    clientId={client.id} 
+                    clientName={client.name} 
+                    onScheduled={async (data) => {
+                      try {
+                        const sessionData = {
+                          clientId: client.id,
+                          clientName: client.name,
+                          title: data.title,
+                          startTime: data.startTime.toISOString(),
+                          duration: data.duration,
+                          status: 'Requested',
+                          createdAt: serverTimestamp(),
+                          createdBy: user.uid
+                        };
+                        await addDoc(collection(db, 'scheduledSessions'), sessionData);
+                        await sendNotification(
+                          'allie.pakele@gmail.com',
+                          'New Session Request',
+                          `${client.name} has requested a session: ${data.title}`,
+                          'session'
+                        );
+                      } catch (error) {
+                        console.error('Error scheduling session:', error);
+                      }
+                    }} 
+                  />
                 </CardContent>
               </Card>
             </div>
@@ -2530,7 +3652,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                     </div>
                     {project.liveUrl && (
                       <Button 
-                        render={<a href={project.liveUrl} target="_blank" rel="noopener noreferrer" />} 
+                        render={<a href={project.liveUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" />} 
                         className="w-full bg-slate-900 text-white hover:bg-slate-800 mt-2"
                       >
                         View Live Product
@@ -2565,7 +3687,32 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                       <TableCell className="text-slate-500 text-sm">
                         {contract.createdAt?.seconds ? new Date(contract.createdAt.seconds * 1000).toLocaleDateString() : 'N/A'}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right space-x-2">
+                        {contract.status === 'Sent' && (
+                          <ContractSigningDialog 
+                            contract={contract} 
+                            onSign={async (signingData) => {
+                              try {
+                                await updateDoc(doc(db, 'contracts', contract.id), {
+                                  ...signingData,
+                                  status: 'Signed',
+                                  signedAt: serverTimestamp(),
+                                  dateSigned: new Date().toISOString().split('T')[0]
+                                });
+                                
+                                // Notify admin
+                                await sendNotification(
+                                  'allie.pakele@gmail.com',
+                                  'Contract Signed',
+                                  `${client.name} has signed the contract: ${contract.title}`,
+                                  'contract'
+                                );
+                              } catch (error) {
+                                console.error('Error signing contract:', error);
+                              }
+                            }}
+                          />
+                        )}
                         {contract.fileUrl && (
                           <Button variant="ghost" size="sm" render={<a href={contract.fileUrl} target="_blank" rel="noopener noreferrer" />}>
                             View PDF
@@ -2594,6 +3741,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                     <TableHead>Type</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Notes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2611,6 +3759,9 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
                         }>
                           {payment.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500 max-w-[200px] truncate" title={payment.notes}>
+                        {payment.notes || '-'}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -2654,7 +3805,7 @@ function ClientPortal({ user, client, projects, contracts, payments, qnas, sched
           </TabsContent>
 
           <TabsContent value="sessions" className="space-y-6">
-            <SessionsView sessions={scheduledSessions} clients={client ? [client] : []} user={user} onStartCall={onStartCall} isClientView={true} />
+            <SessionsView sessions={scheduledSessions} clients={client ? [client] : []} user={user} role="client" onStartCall={onStartCall} sendNotification={sendNotification} isClientView={true} />
           </TabsContent>
 
           <TabsContent value="messages" className="space-y-6">

@@ -124,7 +124,17 @@ service cloud.firestore {
         data.status in ['Pending', 'Paid', 'Overdue', 'Cancelled'] &&
         (!('type' in data) || data.type in ['Deposit', 'Installment', 'Final Payment', 'Other']) &&
         data.date is string &&
-        data.createdAt is timestamp;
+        (data.createdAt is timestamp || data.createdAt is string);
+    }
+
+    function isValidNotification(data) {
+      return hasRequiredFields(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&
+        data.userId is string &&
+        data.title is string &&
+        data.message is string &&
+        data.type in ['message', 'session', 'contract', 'payment'] &&
+        data.read is bool &&
+        (data.createdAt is timestamp || data.createdAt is string);
     }
 
     function isValidTask(data) {
@@ -135,14 +145,16 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
           request.auth.token.email == "allie.pakele@gmail.com");
     }
 
     function isClient(clientId) {
-      let clientData = get(/databases/$(database)/documents/clients/$(clientId)).data;
       return isAuthenticated() && 
-        (clientData.uid == request.auth.uid || clientData.email == request.auth.token.email);
+        clientId != null &&
+        exists(/databases/$(database)/documents/clients/$(clientId)) &&
+        (get(/databases/$(database)/documents/clients/$(clientId)).data.uid == request.auth.uid || 
+         get(/databases/$(database)/documents/clients/$(clientId)).data.email == request.auth.token.email);
     }
 
     // ===============================================================
@@ -176,7 +188,9 @@ service cloud.firestore {
 
     match /contracts/{contractId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'initials', 'signature', 'dateSigned', 'signedAt']));
+      allow delete: if isAdmin();
     }
 
     match /payments/{paymentId} {
@@ -200,6 +214,12 @@ service cloud.firestore {
       match /calleeCandidates/{candidateId} {
         allow read, write: if isAuthenticated();
       }
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+      match /links/{linkId} {
+        allow read, write: if isAuthenticated();
+      }
     }
 
     match /scheduledSessions/{sessionId} {
@@ -212,8 +232,25 @@ service cloud.firestore {
     match /messages/{messageId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
       allow create: if isAuthenticated() && (isAdmin() || isClient(request.resource.data.clientId));
-      allow update: if isAuthenticated() && isAdmin(); // Only admin can mark as read for now or similar
+      allow update: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
       allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated(); // Anyone can send a notification (e.g. client to admin)
+      allow update: if isAuthenticated() && isOwner(resource.data.userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    match /contractTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /contractTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     match /test/connection {
