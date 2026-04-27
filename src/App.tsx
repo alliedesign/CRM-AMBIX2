@@ -127,7 +127,7 @@ interface ScheduledSession {
   title: string;
   startTime: any;
   duration?: number;
-  status: 'Requested' | 'Accepted' | 'Declined' | 'Active' | 'Completed' | 'Cancelled';
+  status: 'Requested' | 'Accepted' | 'Declined' | 'Active' | 'Completed' | 'Cancelled' | 'Proposed';
   createdAt: any;
   createdBy: string;
 }
@@ -492,12 +492,15 @@ Client: ____________________`,
             callId={activeCall.callId}
             user={user} 
             onClose={() => setActiveCall(null)} 
+            isAdmin={role === 'admin'}
           />
         )}
         <Toaster position="top-right" expand={true} richColors />
       </div>
     );
   }
+
+  const unreadMessagesCount = messages.filter(m => !m.read && m.senderId !== user.uid).length;
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -556,6 +559,7 @@ Client: ____________________`,
             label="Messages" 
             active={activeTab === 'messages'} 
             onClick={() => setActiveTab('messages')} 
+            badge={unreadMessagesCount}
           />
           <SidebarLink 
             icon={<FileText className="h-5 w-5" />} 
@@ -622,7 +626,7 @@ Client: ____________________`,
             </motion.div>
           )}
 
-          {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} />}
+          {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} setActiveTab={setActiveTab} />}
           {activeTab === 'notifications' && <NotificationsView notifications={notifications} />}
           {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
@@ -641,6 +645,7 @@ Client: ____________________`,
           callId={activeCall.callId}
           user={user} 
           onClose={() => setActiveCall(null)} 
+          isAdmin={role === 'admin'}
         />
       )}
       <Toaster position="top-right" expand={true} richColors />
@@ -1195,7 +1200,7 @@ function NotificationsView({ notifications }: { notifications: Notification[] })
   );
 }
 
-function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomingCall }: { clients: Client[], projects: Project[], tasks: Task[], sessions: ScheduledSession[], onStartCall: (callData: any) => void, incomingCall?: any }) {
+function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomingCall, setActiveTab }: { clients: Client[], projects: Project[], tasks: Task[], sessions: ScheduledSession[], onStartCall: (callData: any) => void, incomingCall?: any, setActiveTab: (tab: string) => void }) {
   const activeProjects = projects.filter(p => p.status !== 'Completed');
   const pendingTasks = tasks.filter(t => t.status !== 'Done');
   const sessionRequests = sessions.filter(s => s.status === 'Requested');
@@ -1261,10 +1266,7 @@ function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomi
                     <Button 
                       size="sm" 
                       className="bg-slate-900 text-white"
-                      onClick={() => {
-                        const trigger = document.querySelector('[label="Sessions"]') as HTMLElement;
-                        if (trigger) trigger.click();
-                      }}
+                      onClick={() => setActiveTab('sessions')}
                     >
                       Manage
                     </Button>
@@ -1308,13 +1310,6 @@ function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomi
                               <Phone className="h-2.5 w-2.5" />
                             </a>
                           )}
-                          <button 
-                            onClick={() => onStartCall({ clientId: project.clientId, clientName: project.clientName })}
-                            className="text-slate-300 hover:text-blue-500 transition-colors"
-                            title="Go Live Video"
-                          >
-                            <Video className="h-2.5 w-2.5" />
-                          </button>
                         </div>
                       )}
                     </div>
@@ -2417,15 +2412,6 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
                 </div>
               </div>
               <div className="flex justify-end space-x-2 pt-2">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => onStartCall({ clientId: project.clientId, clientName: project.clientName })} 
-                  className="text-slate-400 hover:text-blue-600"
-                  title="Go Live Video"
-                >
-                  <Video className="h-4 w-4" />
-                </Button>
                 <Button variant="ghost" size="icon" onClick={() => startEdit(project)} className="text-slate-400 hover:text-slate-900">
                   <Search className="h-4 w-4" />
                 </Button>
@@ -2623,13 +2609,6 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onSta
                           <Phone className="h-2.5 w-2.5" />
                         </a>
                       )}
-                      <button 
-                        onClick={() => onStartCall({ clientId: client.id, clientName: client.name })}
-                        className="text-slate-300 hover:text-blue-500 transition-colors"
-                        title="Go Live Video"
-                      >
-                        <Video className="h-2.5 w-2.5" />
-                      </button>
                     </div>
                   )}
                 </div>
@@ -2898,7 +2877,7 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
     await addDoc(collection(db, 'scheduledSessions'), {
       ...newSession,
       clientName: client?.name || 'Unknown',
-      status: 'Accepted',
+      status: isClientView ? 'Requested' : 'Proposed',
       createdAt: serverTimestamp(),
       createdBy: user.uid
     });
@@ -3088,19 +3067,53 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
                   </div>
                 )}
 
-                {(session.status === 'Accepted' || session.status === 'Active') && (
+                {session.status === 'Proposed' && isClientView && (
                   <div className="flex space-x-2">
                     <Button 
-                      className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
+                      className="flex-1 bg-green-600 text-white hover:bg-green-500"
+                      onClick={() => handleStatusChange(session.id, 'Accepted')}
+                    >
+                      Accept Appointment
+                    </Button>
+                  </div>
+                )}
+
+                {session.status === 'Accepted' && (
+                  <div className="flex space-x-2">
+                    {role === 'admin' ? (
+                      <Button 
+                        className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
+                        onClick={() => startSession(session)}
+                      >
+                        <Video className="mr-2 h-4 w-4" /> Start Session
+                      </Button>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center p-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100">
+                        <Clock className="mr-2 h-3 w-3 animate-pulse" /> Waiting for Host to start
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {session.status === 'Active' && (
+                  <div className="flex space-x-2">
+                    <Button 
+                      className="flex-1 bg-blue-600 text-white hover:bg-blue-500"
                       onClick={() => startSession(session)}
                     >
-                      <Video className="mr-2 h-4 w-4" /> {session.status === 'Active' ? 'Join Session' : 'Start Session'}
+                      <Video className="mr-2 h-4 w-4" /> Join Live Session
                     </Button>
-                    {session.status === 'Active' && (
+                    {role === 'admin' && (
                       <Button variant="outline" onClick={() => handleStatusChange(session.id, 'Completed')}>
                         End
                       </Button>
                     )}
+                  </div>
+                )}
+
+                {session.status === 'Proposed' && !isClientView && (
+                  <div className="text-center p-2 rounded-lg bg-slate-50 text-slate-500 text-[10px] italic border border-slate-100">
+                    Awaiting client acceptance...
                   </div>
                 )}
 
@@ -3192,21 +3205,77 @@ function ChatWindow({ messages, clientId, user, onSendMessage }: {
   );
 }
 
+function ChatWindowWrapper({ messages, clientId, user, clientName }: { messages: Message[], clientId: string, user: User, clientName: string }) {
+  // Mark messages as read when client opens chat
+  useEffect(() => {
+    const unreadFromAdmin = messages.filter(m => !m.read && m.senderId !== user.uid);
+    unreadFromAdmin.forEach(async (m) => {
+      try {
+        await updateDoc(doc(db, 'messages', m.id), { read: true });
+      } catch (error) {
+        console.error('Error marking message as read:', error);
+      }
+    });
+  }, [messages.length, user.uid]);
+
+  const handleSendMessage = async (text: string) => {
+    try {
+      await addDoc(collection(db, 'messages'), {
+        text,
+        senderId: user.uid,
+        senderName: clientName,
+        clientId: clientId,
+        timestamp: serverTimestamp(),
+        read: false
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'messages');
+    }
+  };
+
+  return (
+    <ChatWindow 
+      messages={messages} 
+      clientId={clientId} 
+      user={user} 
+      onSendMessage={handleSendMessage} 
+    />
+  );
+}
+
 function MessagesView({ messages, clients, user }: { messages: Message[], clients: Client[], user: User }) {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(clients.length > 0 ? clients[0].id : null);
 
   const filteredMessages = messages.filter(m => m.clientId === selectedClientId);
 
+  // Mark messages as read when admin opens a chat
+  useEffect(() => {
+    if (selectedClientId) {
+      const unreadFromThisClient = filteredMessages.filter(m => !m.read && m.senderId !== user.uid);
+      unreadFromThisClient.forEach(async (m) => {
+        try {
+          await updateDoc(doc(db, 'messages', m.id), { read: true });
+        } catch (error) {
+          console.error('Error marking message as read:', error);
+        }
+      });
+    }
+  }, [selectedClientId, filteredMessages.length, user.uid]);
+
   const handleSendMessage = async (text: string) => {
     if (!selectedClientId) return;
-    await addDoc(collection(db, 'messages'), {
-      text,
-      senderId: user.uid,
-      senderName: user.displayName || 'Admin',
-      clientId: selectedClientId,
-      timestamp: serverTimestamp(),
-      read: false
-    });
+    try {
+      await addDoc(collection(db, 'messages'), {
+        text,
+        senderId: user.uid,
+        senderName: user.displayName || 'Admin',
+        clientId: selectedClientId,
+        timestamp: serverTimestamp(),
+        read: false
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'messages');
+    }
   };
 
   return (
@@ -3223,16 +3292,25 @@ function MessagesView({ messages, clients, user }: { messages: Message[], client
             {clients.map(client => {
               const clientMessages = messages.filter(m => m.clientId === client.id);
               const lastMessage = clientMessages[clientMessages.length - 1];
+              const unreadCount = clientMessages.filter(m => !m.read && m.senderId !== user.uid).length;
+              
               return (
                 <button
                   key={client.id}
                   onClick={() => setSelectedClientId(client.id)}
-                  className={`w-full text-left p-4 rounded-xl transition-all ${
+                  className={`w-full text-left p-4 rounded-xl transition-all relative ${
                     selectedClientId === client.id ? 'bg-slate-900 text-white shadow-md' : 'hover:bg-slate-50 text-slate-600'
                   }`}
                 >
-                  <div className="font-bold truncate">{client.name}</div>
-                  <div className={`text-xs truncate ${selectedClientId === client.id ? 'text-slate-400' : 'text-slate-400'}`}>
+                  <div className="flex justify-between items-start">
+                    <div className="font-bold truncate pr-6">{client.name}</div>
+                    {unreadCount > 0 && selectedClientId !== client.id && (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-bold">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </div>
+                  <div className={`text-xs truncate ${selectedClientId === client.id ? 'text-slate-400' : 'text-slate-400'} ${unreadCount > 0 && selectedClientId !== client.id ? 'font-bold text-slate-900' : ''}`}>
                     {lastMessage ? lastMessage.text : 'No messages yet'}
                   </div>
                 </button>
@@ -3379,6 +3457,8 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
     );
   }
 
+  const unreadMessagesCount = messages.filter(m => !m.read && m.senderId !== user.uid).length;
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur-md">
@@ -3461,7 +3541,14 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
             <TabsTrigger value="payments" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Payments</TabsTrigger>
             <TabsTrigger value="vitals" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Vitals</TabsTrigger>
             <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Sessions</TabsTrigger>
-            <TabsTrigger value="messages" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white">Messages</TabsTrigger>
+            <TabsTrigger value="messages" className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white flex items-center">
+              Messages
+              {unreadMessagesCount > 0 && (
+                <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-white text-[10px] font-bold group-data-[state=active]:bg-white group-data-[state=active]:text-slate-900">
+                  {unreadMessagesCount}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="notifications" className="space-y-8">
@@ -3825,20 +3912,11 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
           </TabsContent>
 
           <TabsContent value="messages" className="space-y-6">
-            <ChatWindow 
+            <ChatWindowWrapper 
               messages={messages} 
               clientId={client.id} 
               user={user} 
-              onSendMessage={async (text) => {
-                await addDoc(collection(db, 'messages'), {
-                  text,
-                  senderId: user.uid,
-                  senderName: client.name,
-                  clientId: client.id,
-                  timestamp: serverTimestamp(),
-                  read: false
-                });
-              }} 
+              clientName={client.name}
             />
           </TabsContent>
         </Tabs>

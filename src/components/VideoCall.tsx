@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
-  Video, VideoOff, Mic, MicOff, Monitor, StopCircle, PlayCircle, X, Copy, Check, PhoneOff, PhoneCall, Send, Link as LinkIcon, MessageSquare, ExternalLink, Plus
+  Video, VideoOff, Mic, MicOff, Monitor, StopCircle, PlayCircle, X, Copy, Check, PhoneOff, PhoneCall, Send, Link as LinkIcon, MessageSquare, ExternalLink, Plus, Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Input } from '@/components/ui/input';
@@ -19,9 +19,10 @@ interface VideoCallProps {
   user: User;
   onClose: () => void;
   callId?: string; // If provided, we are joining a call
+  isAdmin?: boolean;
 }
 
-export function VideoCall({ clientId, clientName, user, onClose, callId: initialCallId }: VideoCallProps) {
+export function VideoCall({ clientId, clientName, user, onClose, callId: initialCallId, isAdmin = false }: VideoCallProps) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -438,7 +439,9 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
                     <div className="h-20 w-20 rounded-full bg-slate-800 flex items-center justify-center">
                       <VideoOff className="h-8 w-8 text-slate-600" />
                     </div>
-                    <p className="text-slate-400 text-sm font-medium">Start a call to begin session</p>
+                    <p className="text-slate-400 text-sm font-medium">
+                      {isAdmin ? 'Start a call to begin session' : 'Waiting for host to start the call...'}
+                    </p>
                   </div>
                 )}
 
@@ -487,12 +490,18 @@ export function VideoCall({ clientId, clientName, user, onClose, callId: initial
                 </Button>
                 
                 {status === 'idle' ? (
-                  <Button 
-                    onClick={createCall}
-                    className="h-12 px-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/20"
-                  >
-                    <PhoneCall className="mr-2 h-5 w-5" /> Start Call
-                  </Button>
+                  isAdmin ? (
+                    <Button 
+                      onClick={createCall}
+                      className="h-12 px-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/20"
+                    >
+                      <PhoneCall className="mr-2 h-5 w-5" /> Start Call
+                    </Button>
+                  ) : (
+                    <div className="h-12 flex items-center px-6 rounded-full bg-slate-800 text-slate-400 text-sm font-medium border border-slate-700">
+                      <Clock className="mr-2 h-4 w-4 animate-pulse" /> Waiting for Host...
+                    </div>
+                  )
                 ) : (
                   <Button 
                     onClick={endCall}
