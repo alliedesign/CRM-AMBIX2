@@ -693,8 +693,11 @@ function CRMApp() {
         handleFirestoreError(error, OperationType.LIST, 'contractTemplates');
       }));
     } else {
-      // Client role: find linked client by email
-      const clientQuery = query(collection(db, 'clients'), where('email', '==', user.email));
+      // Client role: find linked client by email (case-insensitive match)
+      const userEmail = user.email?.toLowerCase().trim();
+      if (!userEmail) return;
+
+      const clientQuery = query(collection(db, 'clients'), where('email', '==', userEmail));
       unsubscribes.push(onSnapshot(clientQuery, (snapshot) => {
         if (!snapshot.empty) {
           const found = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Client;
@@ -2243,6 +2246,7 @@ function ClientsView({ clients, user, onStartCall, sendNotification, setActiveTa
     try {
       await addDoc(collection(db, 'clients'), {
         ...formData,
+        email: formData.email.trim().toLowerCase(),
         createdAt: serverTimestamp(),
         createdBy: user.uid
       });
@@ -2256,7 +2260,10 @@ function ClientsView({ clients, user, onStartCall, sendNotification, setActiveTa
   const handleUpdate = async () => {
     if (!editingClient) return;
     try {
-      await updateDoc(doc(db, 'clients', editingClient.id), formData);
+      await updateDoc(doc(db, 'clients', editingClient.id), {
+        ...formData,
+        email: formData.email.trim().toLowerCase()
+      });
       setEditingClient(null);
       resetForm();
     } catch (error) {
@@ -4081,11 +4088,13 @@ function LeadsView({ leads, clients, user }: { leads: Lead[], clients: Client[],
       if (editingLead) {
         await updateDoc(doc(db, 'leads', editingLead.id), {
           ...form,
+          email: form.email.trim().toLowerCase(),
           updatedAt: serverTimestamp()
         });
       } else {
         await addDoc(collection(db, 'leads'), {
           ...form,
+          email: form.email.trim().toLowerCase(),
           status: 'New',
           createdAt: serverTimestamp()
         });
@@ -5475,11 +5484,15 @@ function ClientCustomersView({ customers, clientId, clientName }: { customers: C
   const handleSave = async () => {
     if (!form.name) return;
     try {
+      const data = {
+        ...form,
+        email: form.email.trim().toLowerCase()
+      };
       if (editingCustomer) {
-        await updateDoc(doc(db, 'clientCustomers', editingCustomer.id), { ...form });
+        await updateDoc(doc(db, 'clientCustomers', editingCustomer.id), data);
       } else {
         await addDoc(collection(db, 'clientCustomers'), {
-          ...form,
+          ...data,
           clientId,
           createdAt: serverTimestamp()
         });
