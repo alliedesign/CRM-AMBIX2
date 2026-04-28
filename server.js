@@ -18,10 +18,25 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = 3000;
 
-  app.use(cors());
+  // IMPORTANT: Root-level CORS and headers
+  app.use(cors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }));
   app.use(express.json());
+
+  // Global timeout middleware
+  app.use((req, res, next) => {
+    res.setTimeout(30000, () => {
+      console.error(`Request timeout: ${req.method} ${req.url}`);
+      res.status(408).send('Request Timeout');
+    });
+    next();
+  });
 
   // Debug middleware to log only API requests
   app.use((req, res, next) => {
@@ -138,8 +153,10 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`--- SERVER READY ---`);
+    console.log(`URL: http://0.0.0.0:${PORT}`);
+    console.log(`Health: http://0.0.0.0:${PORT}/api/health`);
   });
 }
 

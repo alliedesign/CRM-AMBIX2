@@ -237,8 +237,14 @@ function CRMApp() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/health')
-      .then(res => res.json())
+    const apiHealthUrl = `${window.location.origin}/api/health`;
+    fetch(apiHealthUrl)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
       .then(data => {
         console.log('API STATUS:', data);
         if (data.status === 'ok') {
@@ -246,8 +252,13 @@ function CRMApp() {
         }
       })
       .catch(err => {
-        console.error('API ERROR:', err);
-        toast.error('Video Backend Connection Failed');
+        console.error('API ERROR DETAIL:', {
+          message: err.message,
+          stack: err.stack,
+          name: err.name,
+          url: apiHealthUrl
+        });
+        toast.error(`Video Backend Connection Failed: ${err.message}`);
       });
   }, []);
 

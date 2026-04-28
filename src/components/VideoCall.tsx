@@ -41,8 +41,9 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   useEffect(() => {
     const fetchDailyAccess = async () => {
       console.log('fetchDailyAccess START');
+      const apiUrl = `${window.location.origin}/api/daily-token`;
       try {
-        const response = await fetch('/api/daily-token', {
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
