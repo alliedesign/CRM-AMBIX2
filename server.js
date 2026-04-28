@@ -3,75 +3,120 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+console.log('--- SERVER STARTING ---');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('DAILY_API_KEY exists:', !!process.env.DAILY_API_KEY);
+console.log('VITE_DAILY_DOMAIN exists:', !!process.env.VITE_DAILY_DOMAIN);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = 3000;
 
   app.use(cors());
   app.use(express.json());
 
-  // API to generate Jitsi JaaS tokens
-  app.post('/api/jitsi-token', (req, res) => {
+  // Debug middleware to log all requests
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    // If it's an API request, let's keep track
+    next();
+  });
+
+  // Health check first
+  app.get('/api/health', (req, res) => {
+    console.log('Health check requested');
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), message: 'API is working' });
+  });
+
+  app.get('/api/test', (req, res) => {
+    res.json({ message: 'Success! API is reachable.' });
+  });
+
+  // API to generate Daily.co meeting tokens
+  app.post('/api/daily-token', async (req, res) => {
+    console.log('--- Daily Token Request ---');
+    console.log('Room:', req.body.roomName);
+    
     try {
       const { roomName, userName, isAdmin } = req.body;
-      const appId = process.env.VITE_JITSI_APP_ID;
-      const apiKey = process.env.JITSI_API_KEY;
-      const privateKey = process.env.JITSI_PRIVATE_KEY;
+      const apiKey = process.env.DAILY_API_KEY;
 
-      if (!appId || !apiKey || !privateKey) {
-        return res.status(200).json({ token: null, message: 'JaaS not configured' });
+      if (!apiKey) {
+        console.error('DAILY_API_KEY is missing in process.env');
+        return res.status(500).json({ error: 'Daily.co API Key is missing' });
       }
 
-      // Format private key if it's missing newlines
-      let formattedKey = privateKey;
-      if (!privateKey.includes('\n')) {
-        formattedKey = privateKey.replace(/\\n/g, '\n');
-      }
-
-      const payload = {
-        aud: 'jitsi',
-        iss: 'chat',
-        sub: appId,
-        room: roomName === '*' ? '*' : roomName,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60), // 1 hour
-        nbf: Math.floor(Date.now() / 1000) - 10,
-        context: {
-          user: {
-            name: userName || (isAdmin ? 'Allie (Host)' : 'Client'),
-            affiliation: isAdmin ? 'owner' : 'member',
-            moderator: isAdmin ? true : false,
-          },
-          features: {
-            livestreaming: true,
-            recording: true,
-            transcription: true,
-            'outbound-call': true,
+      const cleanRoomName = roomName.replace(/[^a-zA-Z0-9_-]/g, '-');
+      
+      // 1. Create Room (ignoring 400 errors as room might exist)
+      const roomRes = await fetch('https://api.daily.co/v1/rooms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          name: cleanRoomName,
+          properties: {
+            enable_chat: true,
+            exp: Math.floor(Date.now() / 1000) + (60 * 60 * 2)
           }
-        }
-      };
+        })
+      });
+      console.log('Room creation status:', roomRes.status);
 
-      const token = jwt.sign(payload, formattedKey, {
-        algorithm: 'RS256',
-        header: {
-          kid: apiKey,
-          typ: 'JWT',
-          alg: 'RS256'
-        }
+      // 2. Generate token
+      const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          properties: {
+            room_name: cleanRoomName,
+            is_owner: isAdmin,
+            user_name: userName || (isAdmin ? 'Allie (Host)' : 'Client'),
+          }
+        })
       });
 
-      res.json({ token });
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        console.error('Daily Token Error:', errText);
+        return res.status(tokenRes.status).json({ error: 'Daily API error', details: errText });
+      }
+
+      const tokenData = await tokenRes.json();
+      const domain = process.env.VITE_DAILY_DOMAIN || 'your-domain';
+      const roomUrl = `https://${domain}.daily.co/${cleanRoomName}`;
+
+      console.log('Token generated successfully');
+      res.json({ 
+        token: tokenData.token, 
+        roomUrl: roomUrl 
+      });
     } catch (error) {
-      console.error('Error generating Jitsi token:', error);
-      res.status(500).json({ error: 'Failed to generate token' });
+      console.error('Critical Server Error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  // Catch-all for other API routes to prevent falling through to Vite
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
   });
 
   if (process.env.NODE_ENV !== 'production') {

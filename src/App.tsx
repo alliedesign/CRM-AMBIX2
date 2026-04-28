@@ -198,6 +198,21 @@ function CRMApp() {
   };
   const [activeCall, setActiveCall] = useState<{ clientId?: string, clientName?: string, callId?: string, sessionId?: string } | null>(null);
 
+  useEffect(() => {
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => {
+        console.log('API STATUS:', data);
+        if (data.status === 'ok') {
+          toast.success('Connected to Secure Video Backend');
+        }
+      })
+      .catch(err => {
+        console.error('API ERROR:', err);
+        toast.error('Video Backend Connection Failed');
+      });
+  }, []);
+
   const handleCallCreated = async (callId: string) => {
     if (activeCall?.sessionId) {
       try {
