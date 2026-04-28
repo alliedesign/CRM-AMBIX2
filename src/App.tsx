@@ -5767,6 +5767,7 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [outreachType, setOutreachType] = useState<'email' | 'sms'>('email');
   const [isSending, setIsSending] = useState(false);
 
   const toggleClient = (id: string) => {
@@ -5777,18 +5778,39 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
     if (selectedClients.length === 0 || !message) return;
     setIsSending(true);
     try {
-      for (const clientId of selectedClients) {
-        const client = clients.find(c => c.id === clientId);
-        if (client && client.uid) {
+      const selectedClientData = selectedClients.map(id => clients.find(c => c.id === id)).filter(Boolean);
+      
+      // 1. Send Internal Portal Notifications
+      for (const client of selectedClientData) {
+        if (client?.uid) {
           await sendNotification(client.uid, subject || 'Message from Allie', message, 'message');
         }
       }
-      toast.success('Messages sent successfully');
+
+      // 2. Send External Outreach via API
+      const response = await fetch('/api/send-outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: outreachType,
+          recipients: selectedClientData.map(c => ({ email: (c as Client).email, phone: (c as Client).phone })),
+          subject,
+          message
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || 'External outreach failed');
+      }
+
+      toast.success(`${outreachType === 'email' ? 'Emails' : 'SMS'} dispatched successfully`);
       setSelectedClients([]);
       setSubject('');
       setMessage('');
     } catch (error) {
-      toast.error('Failed to send outreach');
+      console.error('Outreach error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to send outreach');
     } finally {
       setIsSending(false);
     }
@@ -5807,10 +5829,29 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
             <CardTitle className="text-xl font-black">Compose Message</CardTitle>
           </CardHeader>
           <CardContent className="px-8 pb-8 space-y-6">
-            <div className="grid gap-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Subject</Label>
-              <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Announcement Subject" className="h-12 rounded-xl" />
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
+              <Button 
+                variant={outreachType === 'email' ? 'default' : 'ghost'} 
+                onClick={() => setOutreachType('email')}
+                className={`flex-1 rounded-xl h-10 text-xs font-bold uppercase tracking-widest ${outreachType === 'email' ? 'bg-white shadow-sm dark:bg-slate-900 border-none' : ''}`}
+              >
+                <Mail className="h-3.5 w-3.5 mr-2" /> Email
+              </Button>
+              <Button 
+                variant={outreachType === 'sms' ? 'default' : 'ghost'} 
+                onClick={() => setOutreachType('sms')}
+                className={`flex-1 rounded-xl h-10 text-xs font-bold uppercase tracking-widest ${outreachType === 'sms' ? 'bg-white shadow-sm dark:bg-slate-900 border-none' : ''}`}
+              >
+                <Phone className="h-3.5 w-3.5 mr-2" /> SMS (Twilio)
+              </Button>
             </div>
+            
+            {outreachType === 'email' && (
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Subject</Label>
+                <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email Subject Line" className="h-12 rounded-xl" />
+              </div>
+            )}
             <div className="grid gap-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Broadcast Content</Label>
               <textarea 

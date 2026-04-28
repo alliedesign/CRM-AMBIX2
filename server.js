@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import sgMail from '@sendgrid/mail';
+import twilio from 'twilio';
 
 // Load environment variables
 dotenv.config();
@@ -62,6 +64,85 @@ async function startServer() {
 
   app.get('/api/test', (req, res) => {
     res.json({ message: 'Success! API is reachable.' });
+  });
+
+  // API for outreach (Email/SMS)
+  app.post('/api/send-outreach', async (req, res) => {
+    console.log('--- Outreach Request ---');
+    const { type, recipients, subject, message } = req.body;
+
+    try {
+      if (type === 'email') {
+        const apiKey = process.env.SENDGRID_API_KEY;
+        const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+
+        if (!apiKey || !fromEmail) {
+          throw new Error('SendGrid API key or From Email not configured on server.');
+        }
+
+        sgMail.setApiKey(apiKey);
+
+        const validRecipients = recipients.filter(r => r.email);
+        if (validRecipients.length === 0) {
+          throw new Error('No recipients with valid email addresses.');
+        }
+
+        const msgs = validRecipients.map(recipient => ({
+          to: recipient.email,
+          from: fromEmail,
+          subject: subject || 'Message from Ambix Allie',
+          text: message,
+          html: `<div style="font-family: sans-serif; padding: 20px; color: #334155; line-height: 1.6;">
+                  <h1 style="color: #0f172a; font-size: 24px;">${subject || 'Message from Allie'}</h1>
+                  <p style="font-size: 16px;">${message.replace(/\n/g, '<br>')}</p>
+                  <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
+                  <div style="font-size: 11px; color: #94a3b8; text-align: center;">
+                    <p>Ambix Allie Agency • Professional Outreach Services</p>
+                    <p>Sent via Allie Portal</p>
+                  </div>
+                 </div>`,
+        }));
+
+        await sgMail.send(msgs);
+        console.log(`Successfully sent ${msgs.length} emails via SendGrid`);
+      } else if (type === 'sms') {
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const authToken = process.env.TWILIO_AUTH_TOKEN;
+        const fromNumber = process.env.TWILIO_FROM_NUMBER;
+
+        if (!accountSid || !authToken || !fromNumber) {
+          throw new Error('Twilio credentials not configured on server.');
+        }
+
+        const client = twilio(accountSid, authToken);
+
+        const validRecipients = recipients.filter(r => r.phone);
+        if (validRecipients.length === 0) {
+          throw new Error('No recipients with valid phone numbers.');
+        }
+
+        const smsPromises = validRecipients.map(recipient => {
+          return client.messages.create({
+            body: message,
+            to: recipient.phone,
+            from: fromNumber
+          });
+        });
+
+        await Promise.all(smsPromises);
+        console.log(`Successfully sent ${smsPromises.length} SMS via Twilio`);
+      } else {
+        return res.status(400).json({ error: 'Invalid outreach type' });
+      }
+
+      res.json({ success: true, message: 'Outreach dispatched successfully' });
+    } catch (error) {
+      console.error('Outreach Error:', error);
+      res.status(500).json({ 
+        error: 'Outreach failure', 
+        message: error instanceof Error ? error.message : String(error) 
+      });
+    }
   });
 
   // API to generate Daily.co meeting tokens
