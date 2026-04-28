@@ -155,9 +155,15 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`--- SERVER READY ---`);
-    console.log(`URL: http://0.0.0.0:${PORT}`);
-    console.log(`Health: http://0.0.0.0:${PORT}/api/health`);
+    console.log(`Port: ${PORT}`);
+    console.log(`Health: /api/health`);
+  }).on('error', (err) => {
+    console.error('SERVER LISTEN ERROR:', err);
+    process.exit(1);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error('FATAL STARTUP ERROR:', err);
+  process.exit(1);
+});

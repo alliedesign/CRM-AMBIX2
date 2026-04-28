@@ -197,7 +197,7 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
       allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAdmin() && isValidTask(request.resource.data);
+      allow create: if isAuthenticated() && (isAdmin() || isClient(request.resource.data.clientId)) && isValidTask(request.resource.data);
       allow update: if isAdmin() && isValidTask(request.resource.data);
       allow delete: if isAdmin();
     }

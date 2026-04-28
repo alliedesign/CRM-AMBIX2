@@ -4191,10 +4191,10 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
       };
       await addDoc(collection(db, 'tasks'), taskData);
       await sendNotification(
-        ADMIN_EMAILS[0],
+        'ADMIN_GROUP',
         'New Task Requested',
         `${client.name} has requested a new task: ${data.title}`,
-        'payment' // Using payment as a generic action type for now or defining a new one
+        'message' // Changed to message as it fits task requests well
       );
     } catch (error) {
       console.error('Error requesting task:', error);
