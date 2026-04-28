@@ -23,17 +23,25 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // Debug middleware to log all requests
+  // Debug middleware to log only API requests
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    // If it's an API request, let's keep track
+    if (req.url.startsWith('/api/')) {
+      console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    }
     next();
   });
 
-  // Health check first
+  // Health check
   app.get('/api/health', (req, res) => {
-    console.log('Health check requested');
-    res.json({ status: 'ok', timestamp: new Date().toISOString(), message: 'API is working' });
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(), 
+      message: 'Secure Video API is online',
+      env: {
+        daily: !!process.env.DAILY_API_KEY,
+        domain: !!process.env.VITE_DAILY_DOMAIN
+      }
+    });
   });
 
   app.get('/api/test', (req, res) => {
@@ -108,10 +116,6 @@ async function startServer() {
       console.error('Critical Server Error:', error);
       res.status(500).json({ error: 'Internal Server Error', message: error instanceof Error ? error.message : String(error) });
     }
-  });
-
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
   });
 
   // Catch-all for other API routes to prevent falling through to Vite

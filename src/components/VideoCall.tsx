@@ -24,7 +24,7 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  const dailyDomain = import.meta.env.VITE_DAILY_DOMAIN;
+  const dailyDomain = (import.meta as any).env.VITE_DAILY_DOMAIN;
 
   useEffect(() => {
     if (!initialCallId && roomName && onCallCreated && isAdmin) {

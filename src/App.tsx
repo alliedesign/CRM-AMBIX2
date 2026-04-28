@@ -157,6 +157,7 @@ interface Message {
 }
 
 function CRMApp() {
+  console.log('CRMApp rendering...');
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<'admin' | 'client' | null>(null);
@@ -4193,6 +4194,7 @@ function ClientPortal({ user, client, projects, contracts, payments, vitals, sch
 }
 
 export default function App() {
+  console.log('App root rendering...');
   return (
     <ErrorBoundary>
       <CRMApp />
