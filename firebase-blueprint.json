@@ -13,6 +13,11 @@
         "industry": { "type": "string" },
         "notes": { "type": "string" },
         "uid": { "type": "string" },
+        "notificationsEnabled": { "type": "boolean" },
+        "prefEmail": { "type": "string" },
+        "prefPhone": { "type": "string" },
+        "optInCompleted": { "type": "boolean" },
+        "optInDate": { "type": "string" },
         "createdAt": { "type": "string" },
         "createdBy": { "type": "string" }
       },

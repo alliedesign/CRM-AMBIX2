@@ -53,7 +53,7 @@ service cloud.firestore {
     // ===============================================================
     function isValidClient(data) {
       return data.keys().hasAll(['name', 'company', 'email', 'status', 'createdAt', 'createdBy']) &&
-        data.keys().size() >= 6 && data.keys().size() <= 12 &&
+        data.keys().size() >= 6 && data.keys().size() <= 18 &&
         data.name is string && data.name.size() <= 100 &&
         data.company is string && data.company.size() <= 100 &&
         data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
@@ -143,7 +143,8 @@ service cloud.firestore {
       allow list: if isAdmin() || (isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email));
       allow create: if isAdmin() && isValidClient(incoming());
       allow update: if (isAdmin() && isValidClient(incoming())) || 
-                       (isAuthenticated() && resource.data.uid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes']));
+                       (isAuthenticated() && resource.data.uid == request.auth.uid && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes', 'notificationsEnabled', 'prefEmail', 'prefPhone', 'optInCompleted', 'optInDate']));
       allow delete: if isAdmin();
     }
 

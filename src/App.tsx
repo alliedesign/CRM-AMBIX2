@@ -27,7 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell, Moon, Sun, Menu, ChevronDown, Box, Star, ArrowRight, CheckCircle2, HelpCircle, Edit3, ShieldCheck, TrendingUp, XCircle, Play, Share2, Sparkles, Lock as LockIcon } from 'lucide-react';
+import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell, Moon, Sun, Menu, ChevronDown, Box, Star, ArrowRight, CheckCircle2, HelpCircle, Edit3, ShieldCheck, TrendingUp, XCircle, Play, Share2, Sparkles, Lock as LockIcon, AlertCircle, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Types
@@ -59,6 +59,11 @@ interface Client {
   };
   lastActive?: any;
   uid?: string; // Linked Firebase UID
+  notificationsEnabled?: boolean;
+  prefEmail?: string;
+  prefPhone?: string;
+  optInCompleted?: boolean;
+  optInDate?: any;
   createdAt: any;
   createdBy: string;
 }
@@ -5829,29 +5834,54 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
             <CardTitle className="text-xl font-black">Compose Message</CardTitle>
           </CardHeader>
           <CardContent className="px-8 pb-8 space-y-6">
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
-              <Button 
-                variant={outreachType === 'email' ? 'default' : 'ghost'} 
-                onClick={() => setOutreachType('email')}
-                className={`flex-1 rounded-xl h-10 text-xs font-bold uppercase tracking-widest ${outreachType === 'email' ? 'bg-white shadow-sm dark:bg-slate-900 border-none' : ''}`}
-              >
-                <Mail className="h-3.5 w-3.5 mr-2" /> Email
-              </Button>
-              <Button 
-                variant={outreachType === 'sms' ? 'default' : 'ghost'} 
-                onClick={() => setOutreachType('sms')}
-                className={`flex-1 rounded-xl h-10 text-xs font-bold uppercase tracking-widest ${outreachType === 'sms' ? 'bg-white shadow-sm dark:bg-slate-900 border-none' : ''}`}
-              >
-                <Phone className="h-3.5 w-3.5 mr-2" /> SMS (Twilio)
-              </Button>
-            </div>
-            
-            {outreachType === 'email' && (
-              <div className="grid gap-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Subject</Label>
-                <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email Subject Line" className="h-12 rounded-xl" />
-              </div>
-            )}
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
+                    <Button 
+                      variant={outreachType === 'email' ? 'default' : 'ghost'} 
+                      onClick={() => setOutreachType('email')}
+                      className={`flex-1 rounded-xl h-10 text-xs font-bold uppercase tracking-widest ${outreachType === 'email' ? 'bg-white shadow-sm dark:bg-slate-900 border-none' : ''}`}
+                    >
+                      <Mail className="h-3.5 w-3.5 mr-2" /> Email
+                    </Button>
+                    <Button 
+                      variant={outreachType === 'sms' ? 'default' : 'ghost'} 
+                      onClick={() => setOutreachType('sms')}
+                      className={`flex-1 rounded-xl h-10 text-xs font-bold uppercase tracking-widest ${outreachType === 'sms' ? 'bg-white shadow-sm dark:bg-slate-900 border-none' : ''}`}
+                    >
+                      <Phone className="h-3.5 w-3.5 mr-2" /> SMS (Twilio)
+                    </Button>
+                  </div>
+
+                  {outreachType === 'email' ? (
+                    <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800/50">
+                      <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-400 mb-1">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-xs font-black uppercase tracking-widest italic">Email Setup Checklist</span>
+                      </div>
+                      <ul className="text-[10px] text-blue-600/70 dark:text-blue-400/60 space-y-1 list-disc list-inside font-medium leading-relaxed">
+                        <li>SendGrid API Key must have "Full Access" or "Send" permissions.</li>
+                        <li>The "From" email in Settings MUST be verified in SendGrid as a 'Single Sender' or 'Authenticated Domain'.</li>
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-green-100 dark:border-green-800/50">
+                      <div className="flex items-center space-x-2 text-green-700 dark:text-green-400 mb-1">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-xs font-black uppercase tracking-widest italic">SMS Setup Checklist</span>
+                      </div>
+                      <ul className="text-[10px] text-green-600/70 dark:text-green-400/60 space-y-1 list-disc list-inside font-medium leading-relaxed">
+                        <li>Trial accounts can only send to verified numbers in the Twilio console.</li>
+                        <li>Numbers must be in E.164 format (e.g., +1234567890).</li>
+                        <li>US SMS requires A2P 10DLC registration in Twilio to avoid carrier blocking.</li>
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {outreachType === 'email' && (
+                    <div className="grid gap-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Subject</Label>
+                      <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email Subject Line" className="h-12 rounded-xl" />
+                    </div>
+                  )}
             <div className="grid gap-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Broadcast Content</Label>
               <textarea 
@@ -5904,6 +5934,274 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
   );
 }
 
+function OptInView({ client, onComplete }: { client: Client, onComplete: (prefs: any) => void }) {
+  const [enabled, setEnabled] = useState(true);
+  const [email, setEmail] = useState(client.email || '');
+  const [phone, setPhone] = useState(client.phone || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      await onComplete({
+        notificationsEnabled: enabled,
+        prefEmail: email,
+        prefPhone: phone,
+        optInCompleted: true,
+        optInDate: serverTimestamp()
+      });
+      toast.success('Preferences saved! Welcome to your portal.');
+    } catch (error) {
+      toast.error('Failed to save preferences');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="max-w-xl w-full bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-white/20 overflow-hidden relative"
+      >
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500" />
+        
+        <div className="mb-8 items-center flex flex-col text-center">
+          <div className="h-20 w-20 rounded-[2rem] bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-6">
+            <Sparkles className="h-10 w-10 text-blue-500" />
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Welcome, {client.name}</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Let's set up how you'd like to receive updates and communications.</p>
+        </div>
+
+        <div className="space-y-6">
+          <div className="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center space-x-4">
+              <div className="h-12 w-12 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center shadow-sm">
+                <Bell className={`h-6 w-6 ${enabled ? 'text-blue-500 animate-pulse' : 'text-slate-400'}`} />
+              </div>
+              <div>
+                <p className="font-bold text-slate-900 dark:text-white">Enable Notifications</p>
+                <p className="text-xs text-slate-500">Updates, alerts, and priority messages.</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setEnabled(!enabled)}
+              className={`h-8 w-14 rounded-full transition-all flex items-center p-1 ${enabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+            >
+              <div className={`h-6 w-6 rounded-full bg-white shadow-sm transition-all transform ${enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {enabled && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-4 pt-2 overflow-hidden"
+              >
+                <div className="grid gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Preferred Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input 
+                      value={email} 
+                      onChange={e => setEmail(e.target.value)} 
+                      placeholder="email@example.com"
+                      className="pl-12 h-14 rounded-2xl bg-slate-50 border-none dark:bg-slate-800"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Preferred Phone</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input 
+                      value={phone} 
+                      onChange={e => setPhone(e.target.value)} 
+                      placeholder="+1 (000) 000-0000"
+                      className="pl-12 h-14 rounded-2xl bg-slate-50 border-none dark:bg-slate-800"
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting}
+            className="w-full h-16 bg-slate-900 text-white rounded-[2rem] font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            {isSubmitting ? 'Saving...' : 'Enter Portal'}
+          </Button>
+          
+          <p className="text-[10px] text-center text-slate-400 font-medium px-8 leading-relaxed">
+            By continuing, you agree to receive business communications via your selected methods. You can change these settings at any time in your portal.
+          </p>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function ClientSettingsView({ client, onUpdate, setActiveTab }: { client: Client, onUpdate: (prefs: any) => Promise<void>, setActiveTab: (tab: string) => void }) {
+  const [enabled, setEnabled] = useState(client.notificationsEnabled ?? true);
+  const [email, setEmail] = useState(client.prefEmail || client.email || '');
+  const [phone, setPhone] = useState(client.prefPhone || client.phone || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSave = async () => {
+    setIsSubmitting(true);
+    try {
+      await onUpdate({
+        notificationsEnabled: enabled,
+        prefEmail: email,
+        prefPhone: phone,
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Your communication settings have been updated.');
+    } catch (error) {
+      toast.error('Failed to update settings');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-8 pb-20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Portal Settings</h2>
+          <p className="text-sm text-slate-500 font-medium">Manage your profile, preferences, and notifications.</p>
+        </div>
+        <Button 
+          onClick={handleSave} 
+          disabled={isSubmitting}
+          className="h-14 px-8 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all"
+        >
+          {isSubmitting ? 'Saving Changes...' : 'Save All Preferences'}
+        </Button>
+      </div>
+
+      <div className="grid gap-8 md:grid-cols-3">
+        <div className="md:col-span-2 space-y-8">
+          <Card className="rounded-[2.5rem] border-slate-200 shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+            <CardHeader className="p-8 pb-4">
+              <div className="flex items-center space-x-3 mb-1">
+                <Bell className="h-5 w-5 text-blue-500" />
+                <CardTitle className="text-lg font-black tracking-tight">Notification Channels</CardTitle>
+              </div>
+              <CardDescription className="text-xs font-semibold uppercase tracking-widest text-slate-400">Control how we communicate with you</CardDescription>
+            </CardHeader>
+            <CardContent className="p-8 pt-4 space-y-6">
+              <div className="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl group">
+                <div className="flex items-center space-x-4">
+                  <div className={`h-12 w-12 rounded-2xl flex items-center justify-center transition-all ${enabled ? 'bg-blue-500 shadow-lg shadow-blue-200 dark:shadow-none' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                    <Bell className={`h-6 w-6 ${enabled ? 'text-white' : 'text-slate-500'}`} />
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-900 dark:text-white">Active Communication</p>
+                    <p className="text-xs text-slate-500 font-medium line-clamp-1">Toggle all email and SMS alerts.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setEnabled(!enabled)}
+                  className={`h-8 w-14 rounded-full transition-all flex items-center p-1 ${enabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                >
+                  <div className={`h-6 w-6 rounded-full bg-white shadow-sm transition-all transform ${enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              <div className={`space-y-6 transition-all ${enabled ? 'opacity-100 scale-100' : 'opacity-40 grayscale pointer-events-none'}`}>
+                 <div className="grid gap-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Broadcast Email Address</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <Input 
+                        value={email} 
+                        onChange={e => setEmail(e.target.value)} 
+                        placeholder="you@company.com"
+                        className="pl-12 h-14 rounded-2xl bg-white border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 focus:border-blue-500 focus:ring-0 transition-all font-bold"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-semibold px-1 italic">Notifications about your projects and sessions will go here.</p>
+                 </div>
+
+                 <div className="grid gap-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Broadcast Phone Number</Label>
+                    <div className="relative">
+                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <Input 
+                        value={phone} 
+                        onChange={e => setPhone(e.target.value)} 
+                        placeholder="+1 (000) 000-0000"
+                        className="pl-12 h-14 rounded-2xl bg-white border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 focus:border-blue-500 focus:ring-0 transition-all font-bold"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-semibold px-1 italic">Important SMS alerts will be sent to this number.</p>
+                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-[2.5rem] border-slate-200 shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900 p-8 text-center flex flex-col items-center">
+             <div className="h-16 w-16 rounded-[1.5rem] bg-orange-50 dark:bg-orange-900/20 flex items-center justify-center mb-6">
+                <ShieldCheck className="h-8 w-8 text-orange-500" />
+             </div>
+             <h3 className="text-xl font-black mb-2">Privacy & Consent</h3>
+             <p className="text-sm text-slate-500 font-medium max-w-md mx-auto leading-relaxed">
+               You opted into our business communications on <strong>{client.optInDate ? new Date(client.optInDate.seconds * 1000).toLocaleDateString() : 'Initial Login'}</strong>. You can opt-out at any time by toggling notifications off above.
+             </p>
+          </Card>
+        </div>
+
+        <div className="space-y-8">
+           <Card className="rounded-[2.5rem] border-slate-200 shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+              <CardHeader className="p-8 pb-4">
+                 <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400 flex items-center">
+                    <Sparkles className="h-3 w-3 mr-2 text-blue-500" /> Account Status
+                 </CardTitle>
+              </CardHeader>
+              <CardContent className="p-8 pt-2 space-y-4">
+                 <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-500">Business Unit</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-900 dark:text-white">{client.company}</p>
+                 </div>
+                 <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-500">Contact</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-900 dark:text-white">{client.name}</p>
+                 </div>
+                 <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-500">Industry</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-blue-500">{client.industry || 'General'}</p>
+                 </div>
+                 <div className="pt-4 border-t border-slate-50 dark:border-slate-800">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Status</p>
+                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-black uppercase tracking-widest text-[9px] px-3 py-1">Verified Client</Badge>
+                 </div>
+              </CardContent>
+           </Card>
+
+           <div className="bg-blue-600 rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden group hover:scale-[1.02] transition-all cursor-pointer overflow-hidden" onClick={() => setActiveTab('overview')}>
+              <div className="relative z-10">
+                <HelpCircle className="h-8 w-8 mb-4 opacity-80" />
+                <h4 className="text-xl font-black mb-2">Need Support?</h4>
+                <p className="text-xs font-medium opacity-80 leading-relaxed mb-6">If you need to change your business details or company name, please contact your account manager directly.</p>
+                <div className="flex items-center font-black uppercase tracking-widest text-[10px]">
+                  Go to Overview <ArrowRight className="ml-2 h-3 w-3 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+              <div className="absolute top-0 right-0 -mr-12 -mt-12 h-40 w-40 rounded-full bg-white/10 blur-3xl group-hover:bg-white/20 transition-all"></div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClientPortal({ user, client, projects, tasks, contracts, payments, vitals, scheduledSessions, leads, campaigns, clientCustomers, clientPayments, messages, notifications, sendNotification, onStartCall, incomingCall, onDismissCall, activeTab, setActiveTab, theme, toggleTheme, onOpenSearch }: { 
   user: User, 
   client: Client | null, 
@@ -5930,6 +6228,16 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
   onOpenSearch: () => void
 }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const updateClientPrefs = async (prefs: any) => {
+    if (!client) return;
+    try {
+      await updateDoc(doc(db, 'clients', client.id), prefs);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `clients/${client.id}`);
+      throw error;
+    }
+  };
 
   if (!client) {
     return (
@@ -6143,9 +6451,19 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
           active={activeTab === 'marketing'} 
           onClick={() => { setActiveTab('marketing'); setIsMobileMenuOpen(false); }} 
         />
+        <SidebarLink 
+          icon={<Settings className="h-5 w-5" />} 
+          label="Settings" 
+          active={activeTab === 'settings'} 
+          onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }} 
+        />
       </div>
     </>
   );
+
+  if (client && !client.optInCompleted) {
+    return <OptInView client={client} onComplete={updateClientPrefs} />;
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
@@ -6341,6 +6659,14 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
               notifications={notifications} 
               setActiveTab={setActiveTab} 
               onStartCall={(data) => onStartCall(data)} 
+            />
+          </TabsContent>
+
+          <TabsContent value="settings" className="space-y-8">
+            <ClientSettingsView 
+              client={client} 
+              onUpdate={updateClientPrefs} 
+              setActiveTab={setActiveTab}
             />
           </TabsContent>
 
