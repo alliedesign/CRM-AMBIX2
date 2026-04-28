@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { User } from 'firebase/auth';
 import DailyIframe from '@daily-co/daily-js';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,12 @@ interface VideoCallProps {
 }
 
 export function VideoCall({ clientName, onClose, callId: initialCallId, sessionId, isAdmin = false, onCallCreated }: VideoCallProps & { sessionId?: string }) {
-  const roomName = initialCallId || sessionId || `session-${Math.random().toString(36).substring(7)}`;
+  console.log('VideoCall RENDER', { clientName, initialCallId, sessionId, isAdmin });
+  
+  const roomName = useMemo(() => {
+    return initialCallId || sessionId || `session-${Math.random().toString(36).substring(7)}`;
+  }, [initialCallId, sessionId]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const callFrameRef = useRef<any>(null);
   const [roomUrl, setRoomUrl] = useState<string | null>(null);
@@ -28,12 +33,14 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
 
   useEffect(() => {
     if (!initialCallId && roomName && onCallCreated && isAdmin) {
+      console.log('VideoCall - Triggering onCallCreated');
       onCallCreated(roomName);
     }
   }, [initialCallId, roomName, onCallCreated, isAdmin]);
 
   useEffect(() => {
     const fetchDailyAccess = async () => {
+      console.log('fetchDailyAccess START');
       try {
         const response = await fetch('/api/daily-token', {
           method: 'POST',
@@ -54,6 +61,7 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
 
         const data = await response.json();
         if (data.roomUrl) {
+          console.log('fetchDailyAccess SUCCESS');
           setRoomUrl(data.roomUrl);
           setToken(data.token);
         } else {
@@ -74,37 +82,96 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   useEffect(() => {
     if (!roomUrl || !containerRef.current) return;
 
-    // Create call frame
-    const callFrame = DailyIframe.createFrame(containerRef.current, {
-      iframeStyle: {
-        width: '100%',
-        height: '100%',
-        border: '0',
-      },
-      showLeaveButton: false, // We use our own leave button
-      showFullscreenButton: true,
-    });
+    let isMounted = true;
+    let callFrame: any = null;
 
-    callFrameRef.current = callFrame;
+    async function initDaily() {
+      console.log('initDaily START');
+      // Small delay to ensure any cleanup from previous mounts has a chance to execute
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (!isMounted) {
+        console.log('initDaily ABORT - unmounted');
+        return;
+      }
 
-    // Add event listeners
-    callFrame
-      .on('left-meeting', () => onClose())
-      .on('error', (e) => {
-        console.error('Daily error:', e);
-        toast.error('A video error occurred.');
-      });
+      // Check if instance already exists
+      let existingInstance = DailyIframe.getCallInstance();
+      if (existingInstance) {
+        console.log('initDaily - Found existing instance, attempting cleanup...');
+        try {
+          // IMPORTANT: We must wait for destroy to complete and then check again
+          await existingInstance.destroy();
+          console.log('initDaily - Existing instance destroyed');
+          // Give it a moment to clear internal state
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (e) {
+          console.error('Error destroying existing instance:', e);
+        }
+      }
 
-    // Join the meeting
-    callFrame.join({
-      url: roomUrl,
-      token: token || undefined,
-    });
+      // Re-check after possible long wait for destroy
+      existingInstance = DailyIframe.getCallInstance();
+      if (existingInstance) {
+        console.warn('initDaily - Instance still exists after destroy, aborting current init to prevent duplicate error');
+        return;
+      }
+
+      if (!isMounted || !containerRef.current) {
+        console.log('initDaily ABORT - unmounted or no container after cleanup');
+        return;
+      }
+
+      try {
+        console.log('initDaily - Creating frame...');
+        // Create call frame
+        callFrame = DailyIframe.createFrame(containerRef.current, {
+          iframeStyle: {
+            width: '100%',
+            height: '100%',
+            border: '0',
+          },
+          showLeaveButton: false,
+          showFullscreenButton: true,
+        });
+
+        callFrameRef.current = callFrame;
+
+        // Add event listeners
+        callFrame
+          .on('left-meeting', () => {
+            console.log('Daily Event: left-meeting');
+            onClose();
+          })
+          .on('error', (e: any) => {
+            console.error('Daily error:', e);
+            toast.error('A video error occurred.');
+          });
+
+        // Join the meeting
+        console.log('initDaily - Joining meeting...');
+        await callFrame.join({
+          url: roomUrl!,
+          token: token || undefined,
+        });
+        console.log('initDaily - Joined successfully');
+      } catch (err) {
+        console.error('Daily Init Error:', err);
+        toast.error('Failed to initialize video frame.');
+      }
+    }
+
+    initDaily();
 
     return () => {
+      console.log('VideoCall - Cleaning up...');
+      isMounted = false;
       if (callFrameRef.current) {
-        callFrameRef.current.destroy();
+        const frame = callFrameRef.current;
         callFrameRef.current = null;
+        frame.destroy().then(() => {
+          console.log('VideoCall - Frame destroyed');
+        }).catch(console.error);
       }
     };
   }, [roomUrl, token, onClose]);
