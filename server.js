@@ -53,8 +53,9 @@ async function startServer() {
       timestamp: new Date().toISOString(), 
       message: 'Secure Video API is online',
       env: {
-        daily: !!process.env.DAILY_API_KEY,
-        domain: !!process.env.VITE_DAILY_DOMAIN
+        daily_api_key_configured: !!process.env.DAILY_API_KEY,
+        daily_domain: process.env.VITE_DAILY_DOMAIN || null,
+        node_env: process.env.NODE_ENV
       }
     });
   });
@@ -73,8 +74,19 @@ async function startServer() {
       const apiKey = process.env.DAILY_API_KEY;
 
       if (!apiKey) {
-        console.error('DAILY_API_KEY is missing in process.env');
-        return res.status(500).json({ error: 'Daily.co API Key is missing' });
+        console.error('CRITICAL: DAILY_API_KEY is missing in process.env');
+        return res.status(500).json({ 
+          error: 'Daily.co API Key is not configured on the server.',
+          message: 'Please ensure DAILY_API_KEY is set in your environment variables/secrets.' 
+        });
+      }
+
+      if (!process.env.VITE_DAILY_DOMAIN) {
+        console.error('CRITICAL: VITE_DAILY_DOMAIN is missing in process.env');
+        return res.status(500).json({ 
+          error: 'Daily.co Domain is not configured on the server.',
+          message: 'Please ensure VITE_DAILY_DOMAIN is set in your environment variables.' 
+        });
       }
 
       const cleanRoomName = roomName.replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -119,7 +131,7 @@ async function startServer() {
       }
 
       const tokenData = await tokenRes.json();
-      const domain = process.env.VITE_DAILY_DOMAIN || 'your-domain';
+      const domain = process.env.VITE_DAILY_DOMAIN;
       const roomUrl = `https://${domain}.daily.co/${cleanRoomName}`;
 
       console.log('Token generated successfully');

@@ -14,9 +14,10 @@ interface VideoCallProps {
   callId?: string;
   isAdmin?: boolean;
   onCallCreated?: (callId: string) => void;
+  dailyDomainOverride?: string | null;
 }
 
-export function VideoCall({ clientName, onClose, callId: initialCallId, sessionId, isAdmin = false, onCallCreated }: VideoCallProps & { sessionId?: string }) {
+export function VideoCall({ clientName, onClose, callId: initialCallId, sessionId, isAdmin = false, onCallCreated, dailyDomainOverride }: VideoCallProps & { sessionId?: string }) {
   console.log('VideoCall RENDER', { clientName, initialCallId, sessionId, isAdmin });
   
   const roomName = useMemo(() => {
@@ -29,7 +30,16 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  const dailyDomain = (import.meta as any).env.VITE_DAILY_DOMAIN;
+  // @ts-ignore
+  const dailyDomain = dailyDomainOverride || import.meta.env.VITE_DAILY_DOMAIN;
+
+  useEffect(() => {
+    if (!dailyDomain && !isLoading) {
+      toast.error('Daily.co configuration is missing. Please check your environment variables.', {
+        id: 'daily-config-error'
+      });
+    }
+  }, [dailyDomain, isLoading]);
 
   useEffect(() => {
     if (!initialCallId && roomName && onCallCreated && isAdmin) {
@@ -41,6 +51,14 @@ export function VideoCall({ clientName, onClose, callId: initialCallId, sessionI
   useEffect(() => {
     const fetchDailyAccess = async () => {
       console.log('fetchDailyAccess START');
+      
+      if (!dailyDomain) {
+        console.error('VITE_DAILY_DOMAIN is missing in client env');
+        setIsLoading(false);
+        toast.error('Daily.co domain configuration is missing.');
+        return;
+      }
+
       const apiUrl = `${window.location.origin}/api/daily-token`;
       try {
         const response = await fetch(apiUrl, {

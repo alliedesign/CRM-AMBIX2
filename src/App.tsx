@@ -236,7 +236,10 @@ function CRMApp() {
     return () => console.log('CRMApp UNMOUNTED');
   }, []);
 
+  const [serverConfig, setServerConfig] = useState<{ dailyDomain: string | null }>({ dailyDomain: null });
+
   useEffect(() => {
+    // Check API Health
     const apiHealthUrl = `${window.location.origin}/api/health`;
     fetch(apiHealthUrl)
       .then(res => {
@@ -248,7 +251,16 @@ function CRMApp() {
       .then(data => {
         console.log('API STATUS:', data);
         if (data.status === 'ok') {
-          toast.success('Connected to Secure Video Backend');
+          setServerConfig({ dailyDomain: data.env.daily_domain });
+          
+          if (!data.env.daily_api_key_configured || !data.env.daily_domain) {
+            toast.warning('Daily.co API keys are missing. Video calls will not work until configured in Settings.', {
+              duration: 10000,
+              id: 'daily-warn'
+            });
+          } else {
+            // Already connected
+          }
         }
       })
       .catch(err => {
@@ -737,6 +749,7 @@ Client: ____________________`,
             onClose={() => setActiveCall(null)} 
             isAdmin={false}
             onCallCreated={handleCallCreated}
+            dailyDomainOverride={serverConfig.dailyDomain}
           />
         )}
       </div>
@@ -930,6 +943,7 @@ Client: ____________________`,
           onClose={() => setActiveCall(null)} 
           isAdmin={role === 'admin'}
           onCallCreated={handleCallCreated}
+          dailyDomainOverride={serverConfig.dailyDomain}
         />
       )}
     </div>
@@ -4361,7 +4375,8 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
             />
 
             <DropdownMenu>
-              <DropdownMenuTrigger render={<button className="flex items-center space-x-3 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" />}>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center space-x-3 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer">
                   <div className="h-8 w-8 rounded-full border border-slate-200 bg-slate-100 flex items-center justify-center overflow-hidden dark:border-slate-800 dark:bg-slate-800">
                     {user.photoURL ? (
                       <img src={user.photoURL} alt="" className="h-full w-full object-cover" />
@@ -4374,6 +4389,7 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[100px]">{user.email}</p>
                   </div>
                   <ChevronDown className="h-3 w-3 text-slate-400" />
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64 p-2">
                 <div className="flex items-center space-x-3 p-3 mb-2 rounded-lg bg-slate-50 dark:bg-slate-800/50">
