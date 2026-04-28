@@ -143,8 +143,15 @@ service cloud.firestore {
       allow list: if isAdmin() || (isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email));
       allow create: if isAdmin() && isValidClient(incoming());
       allow update: if (isAdmin() && isValidClient(incoming())) || 
-                       (isAuthenticated() && resource.data.uid == request.auth.uid && 
-                        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes', 'notificationsEnabled', 'prefEmail', 'prefPhone', 'optInCompleted', 'optInDate']));
+                       (isAuthenticated() && (
+                         // Case 1: Already linked - Typical updates
+                         (resource.data.uid == request.auth.uid && 
+                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes', 'notificationsEnabled', 'prefEmail', 'prefPhone', 'optInCompleted', 'optInDate', 'updatedAt'])) ||
+                         // Case 2: One-time link and initial opt-in by email match
+                         (resource.data.email == request.auth.token.email && 
+                          (!('uid' in resource.data) || resource.data.uid == null || resource.data.uid == "") &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'notificationsEnabled', 'prefEmail', 'prefPhone', 'optInCompleted', 'optInDate', 'updatedAt']))
+                       ));
       allow delete: if isAdmin();
     }
 
