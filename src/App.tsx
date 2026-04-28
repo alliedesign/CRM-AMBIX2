@@ -693,30 +693,38 @@ function CRMApp() {
         handleFirestoreError(error, OperationType.LIST, 'contractTemplates');
       }));
     } else {
-      // Client role: find linked client by email (case-insensitive match)
+      // Client role: find linked client
       const userEmail = user.email?.toLowerCase().trim();
       if (!userEmail) return;
 
-      // To handle existing non-normalized data, we fetch all clients and filter in JS
-      // This is safe for freelancer/agency scale apps (usually < 1000 clients)
-      const clientsRef = collection(db, 'clients');
-      unsubscribes.push(onSnapshot(clientsRef, (snapshot) => {
-        const allClients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
-        const found = allClients.find(c => 
-          c.email?.toLowerCase().trim() === userEmail || 
-          (c.uid === user.uid)
-        );
-
-        if (found) {
+      // 1. Try to find by UID first (most reliable if already linked)
+      const uidQuery = query(collection(db, 'clients'), where('uid', '==', user.uid));
+      unsubscribes.push(onSnapshot(uidQuery, (snapshot) => {
+        if (!snapshot.empty) {
+          const found = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Client;
           setLinkedClient(found);
-          // If client doesn't have a UID yet, link it
-          if (!found.uid) {
-            updateDoc(doc(db, 'clients', found.id), { uid: user.uid }).catch(console.error);
-          }
         } else {
-          setLinkedClient(null);
+          // 2. If not found by UID, try to find by Email
+          const emailQuery = query(collection(db, 'clients'), where('email', '==', userEmail));
+          unsubscribes.push(onSnapshot(emailQuery, (emailSnapshot) => {
+            if (!emailSnapshot.empty) {
+              const foundByEmail = { id: emailSnapshot.docs[0].id, ...emailSnapshot.docs[0].data() } as Client;
+              setLinkedClient(foundByEmail);
+              // Link UID if missing
+              if (!foundByEmail.uid) {
+                updateDoc(doc(db, 'clients', foundByEmail.id), { uid: user.uid }).catch(console.error);
+              }
+            } else {
+              setLinkedClient(null);
+            }
+          }, (error) => {
+            console.error('Email search failed:', error);
+            setLinkedClient(null);
+          }));
         }
-      }, (error) => handleFirestoreError(error, OperationType.LIST, 'clients')));
+      }, (error) => {
+        console.error('UID search failed:', error);
+      }));
     }
 
     return () => unsubscribes.forEach(unsub => unsub());

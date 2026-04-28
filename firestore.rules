@@ -139,10 +139,11 @@ service cloud.firestore {
     }
 
     match /clients/{clientId} {
-      allow read: if isAdmin() || isClient(clientId);
+      allow get: if isAdmin() || (isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email));
+      allow list: if isAdmin() || (isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email));
       allow create: if isAdmin() && isValidClient(incoming());
       allow update: if (isAdmin() && isValidClient(incoming())) || 
-                       (isClient(clientId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes']));
+                       (isAuthenticated() && resource.data.uid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes']));
       allow delete: if isAdmin();
     }
 
