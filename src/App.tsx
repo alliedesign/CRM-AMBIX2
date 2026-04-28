@@ -13,8 +13,11 @@ import { VideoCall } from './components/VideoCall';
 
 const ADMIN_EMAILS = ['allie.pakele@gmail.com', 'allie@vibesandvolumes.com'];
 
+const LOGO_LIGHT = "https://www.dropbox.com/scl/fi/5odwkx48d4etw27599sze/ChatGPT-Image-Apr-28-2026-Logo-for-AMBIX-ALLIE-edited.png?rlkey=86btrqkbhlp1axky8xgfri4n0&st=9ym7iv3k&raw=1";
+const LOGO_DARK = "https://www.dropbox.com/scl/fi/h20fwvj0rxbum9hsbglcv/ChatGPT-Image-Apr-28-2026-from-AMBIX-ALLIE-edited.png?rlkey=gyjvlo65c9gx8bsniyzmtcm9i&st=czf4t6ub&raw=1";
+
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -24,10 +27,19 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell, Moon, Sun, Menu, ChevronDown, Box, Star, ArrowRight, CheckCircle2, HelpCircle, Edit3, ShieldCheck } from 'lucide-react';
+import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell, Moon, Sun, Menu, ChevronDown, Box, Star, ArrowRight, CheckCircle2, HelpCircle, Edit3, ShieldCheck, TrendingUp, XCircle, Play, Share2, Sparkles, Lock as LockIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Types
+interface SearchResult {
+  id: string;
+  title: string;
+  subtitle?: string;
+  type: 'client' | 'project' | 'task' | 'lead' | 'campaign' | 'payment' | 'customer' | 'session' | 'message';
+  tab: string;
+  metadata?: any;
+}
+
 interface Client {
   id: string;
   name: string;
@@ -38,9 +50,72 @@ interface Client {
   industry?: 'Creative' | 'Business' | 'Platforms';
   status: 'Active' | 'Lead' | 'Inactive';
   notes?: string;
+  features?: {
+    emailCampaigns: boolean;
+    smsCampaigns: boolean;
+    liveSessions: boolean;
+    leads: boolean;
+    marketingTools: boolean;
+  };
+  lastActive?: any;
   uid?: string; // Linked Firebase UID
   createdAt: any;
   createdBy: string;
+}
+
+interface ClientCustomer {
+  id: string;
+  clientId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  notes?: string;
+  createdAt: any;
+}
+
+interface ClientPayment {
+  id: string;
+  clientId: string;
+  customerId: string;
+  projectId?: string;
+  amount: number;
+  currency: string;
+  status: 'Paid' | 'Refunded' | 'Failed';
+  description?: string;
+  date: string;
+  createdAt: any;
+}
+
+interface Lead {
+  id: string;
+  clientId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  source?: string;
+  status: 'New' | 'Contacted' | 'Interested' | 'Converted' | 'Lost';
+  type: 'Lead' | 'Appointment';
+  cost?: number;
+  isPaid?: boolean;
+  pricePaid?: number;
+  notes?: string;
+  createdAt: any;
+}
+
+interface Campaign {
+  id: string;
+  clientId: string;
+  title: string;
+  type: 'Email' | 'SMS';
+  content: string;
+  status: 'Draft' | 'Scheduled' | 'Sending' | 'Sent' | 'Failed';
+  scheduledAt?: any;
+  recipientCount?: number;
+  recipientsCount?: number;
+  openRate?: number;
+  clickRate?: number;
+  createdAt: any;
 }
 
 interface Project {
@@ -65,10 +140,12 @@ interface Project {
 interface Task {
   id: string;
   title: string;
+  description?: string;
   projectId: string | 'Global';
   clientId?: string;
   clientName?: string;
-  status: 'Todo' | 'In Progress' | 'Done';
+  priority?: 'Low' | 'Medium' | 'High';
+  status: 'Todo' | 'In Progress' | 'Done' | 'Declined';
   dueDate?: string;
   assignedTo?: string;
   createdAt: any;
@@ -135,6 +212,7 @@ interface ScheduledSession {
   createdBy: string;
   callId?: string;
   meetingLink?: string;
+  recordingUrl?: string;
 }
 
 interface Notification {
@@ -172,10 +250,33 @@ function CRMApp() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [vitals, setVitals] = useState<Vital[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [clientCustomers, setClientCustomers] = useState<ClientCustomer[]>([]);
+  const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [contractTemplates, setContractTemplates] = useState<ContractTemplate[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Update presence
+  useEffect(() => {
+    if (!user || role !== 'client' || !linkedClient) return;
+    
+    const updatePresence = async () => {
+      try {
+        await updateDoc(doc(db, 'clients', linkedClient.id), {
+          lastActive: serverTimestamp()
+        });
+      } catch (e) {
+        console.error('Presence error:', e);
+      }
+    };
+
+    updatePresence();
+    const interval = setInterval(updatePresence, 30000); // Every 30 seconds
+    return () => clearInterval(interval);
+  }, [user?.uid, role, linkedClient?.id]);
 
   const sendNotification = async (userId: string, title: string, message: string, type: Notification['type'], link?: string) => {
     try {
@@ -222,6 +323,19 @@ function CRMApp() {
   };
 
   const [activeCall, setActiveCall] = useState<{ clientId?: string, clientName?: string, callId?: string, sessionId?: string } | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Keyboard shortcut for search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     console.log('ACTIVE CALL CHANGED:', activeCall);
@@ -502,6 +616,38 @@ function CRMApp() {
         handleFirestoreError(error, OperationType.LIST, 'scheduledSessions');
       }));
 
+      const leadsQuery = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(leadsQuery, (snapshot) => {
+        setLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));
+      }, (error) => {
+        if ((error as any).code === 'resource-exhausted') return;
+        handleFirestoreError(error, OperationType.LIST, 'leads');
+      }));
+
+      const campaignsQuery = query(collection(db, 'campaigns'), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(campaignsQuery, (snapshot) => {
+        setCampaigns(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign)));
+      }, (error) => {
+        if ((error as any).code === 'resource-exhausted') return;
+        handleFirestoreError(error, OperationType.LIST, 'campaigns');
+      }));
+
+      const clientCustomersQuery = query(collection(db, 'clientCustomers'), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(clientCustomersQuery, (snapshot) => {
+        setClientCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientCustomer)));
+      }, (error) => {
+        if ((error as any).code === 'resource-exhausted') return;
+        handleFirestoreError(error, OperationType.LIST, 'clientCustomers');
+      }));
+
+      const clientPaymentsQuery = query(collection(db, 'clientPayments'), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(clientPaymentsQuery, (snapshot) => {
+        setClientPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientPayment)));
+      }, (error) => {
+        if ((error as any).code === 'resource-exhausted') return;
+        handleFirestoreError(error, OperationType.LIST, 'clientPayments');
+      }));
+
       const messagesQuery = query(collection(db, 'messages'), orderBy('timestamp', 'asc'));
       unsubscribes.push(onSnapshot(messagesQuery, (snapshot) => {
         setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
@@ -625,6 +771,46 @@ Client: ____________________`,
       handleFirestoreError(error, OperationType.LIST, 'projects');
     });
 
+    const tasksQuery = query(collection(db, 'tasks'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribeTasks = onSnapshot(tasksQuery, (snapshot) => {
+      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
+    }, (error) => {
+      if ((error as any).code === 'resource-exhausted') return;
+      handleFirestoreError(error, OperationType.LIST, 'tasks');
+    });
+
+    const leadsQuery = query(collection(db, 'leads'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribeLeads = onSnapshot(leadsQuery, (snapshot) => {
+      setLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));
+    }, (error) => {
+      if ((error as any).code === 'resource-exhausted') return;
+      handleFirestoreError(error, OperationType.LIST, 'leads');
+    });
+
+    const campaignsQuery = query(collection(db, 'campaigns'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribeCampaigns = onSnapshot(campaignsQuery, (snapshot) => {
+      setCampaigns(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign)));
+    }, (error) => {
+      if ((error as any).code === 'resource-exhausted') return;
+      handleFirestoreError(error, OperationType.LIST, 'campaigns');
+    });
+
+    const customersQuery = query(collection(db, 'clientCustomers'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribeCustomers = onSnapshot(customersQuery, (snapshot) => {
+      setClientCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientCustomer)));
+    }, (error) => {
+      if ((error as any).code === 'resource-exhausted') return;
+      handleFirestoreError(error, OperationType.LIST, 'clientCustomers');
+    });
+
+    const clientPaymentsQuery = query(collection(db, 'clientPayments'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribeClientPayments = onSnapshot(clientPaymentsQuery, (snapshot) => {
+      setClientPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientPayment)));
+    }, (error) => {
+      if ((error as any).code === 'resource-exhausted') return;
+      handleFirestoreError(error, OperationType.LIST, 'clientPayments');
+    });
+
     const contractsQuery = query(collection(db, 'contracts'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
     const unsubscribeContracts = onSnapshot(contractsQuery, (snapshot) => {
       setContracts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contract)));
@@ -687,12 +873,17 @@ Client: ____________________`,
 
     return () => {
       unsubscribeProjects();
+      unsubscribeTasks();
       unsubscribeContracts();
       unsubscribePayments();
       unsubscribeVitals();
       unsubscribeMessages();
       unsubscribeNotifications();
       unsubscribeSessions();
+      unsubscribeLeads();
+      unsubscribeCampaigns();
+      unsubscribeCustomers();
+      unsubscribeClientPayments();
     };
   }, [user?.uid, role, linkedClient?.id]);
 
@@ -720,6 +911,10 @@ Client: ____________________`,
           payments={payments} 
           vitals={vitals}
           scheduledSessions={scheduledSessions}
+          leads={leads}
+          campaigns={campaigns}
+          clientCustomers={clientCustomers}
+          clientPayments={clientPayments}
           messages={messages}
           notifications={notifications}
           sendNotification={sendNotification}
@@ -738,6 +933,14 @@ Client: ____________________`,
           setActiveTab={setActiveTab}
           theme={theme}
           toggleTheme={toggleTheme}
+          onOpenSearch={() => setIsSearchOpen(true)}
+        />
+        <GlobalSearchOverlay 
+          isOpen={isSearchOpen}
+          onOpenChange={setIsSearchOpen}
+          data={{ clients, projects, tasks, leads, campaigns, payments, clientCustomers, clientPayments, sessions: scheduledSessions, messages }}
+          setActiveTab={setActiveTab}
+          role={role}
         />
         {activeCall && (
           <VideoCall 
@@ -775,10 +978,10 @@ Client: ____________________`,
               y: { duration: 4, repeat: Infinity, ease: "easeInOut" },
               filter: { duration: 4, repeat: Infinity, ease: "easeInOut" }
             }}
-            className="flex h-32 w-32 items-center justify-center rounded-3xl bg-slate-50 dark:bg-slate-950 p-6 shadow-2xl ring-1 ring-slate-100 dark:ring-slate-800 group cursor-pointer mb-6"
+            className="flex h-32 w-32 items-center justify-center group cursor-pointer mb-6"
           >
             <img 
-              src="https://www.dropbox.com/scl/fi/vdey7bd72kmt9lz0uzemu/Initial-Square-Shape-AA-Logo.png?rlkey=cs7f7kju2xhku8lhv2fijht2s&st=g20cbojh&raw=1" 
+              src={theme === 'dark' ? LOGO_DARK : LOGO_LIGHT} 
               alt="Ambix Allie Logo" 
               className="h-full w-full object-contain" 
               referrerPolicy="no-referrer" 
@@ -828,6 +1031,18 @@ Client: ____________________`,
             onClick={() => setActiveTab('tasks')} 
           />
           <SidebarLink 
+            icon={<TrendingUp className="h-5 w-5" />} 
+            label="Leads" 
+            active={activeTab === 'leads'} 
+            onClick={() => setActiveTab('leads')} 
+          />
+          <SidebarLink 
+            icon={<Mail className="h-5 w-5" />} 
+            label="Campaigns" 
+            active={activeTab === 'campaigns'} 
+            onClick={() => setActiveTab('campaigns')} 
+          />
+          <SidebarLink 
             icon={<DollarSign className="h-5 w-5" />} 
             label="Payments" 
             active={activeTab === 'payments'} 
@@ -851,6 +1066,12 @@ Client: ____________________`,
             label="Templates" 
             active={activeTab === 'templates'} 
             onClick={() => setActiveTab('templates')} 
+          />
+          <SidebarLink 
+            icon={<Send className="h-5 w-5" />} 
+            label="Outreach" 
+            active={activeTab === 'outreach'} 
+            onClick={() => setActiveTab('outreach')} 
           />
         </nav>
         <div className="absolute bottom-0 w-full border-t border-slate-100 dark:border-slate-800 p-4 transition-colors">
@@ -884,6 +1105,35 @@ Client: ____________________`,
 
       {/* Main Content */}
       <main className="ml-64 flex-1 p-8">
+        {/* Global Search Trigger Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div 
+            onClick={() => setIsSearchOpen(true)}
+            className="flex-1 max-w-md h-12 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl px-4 flex items-center cursor-pointer hover:border-blue-500 transition-all group shadow-sm"
+          >
+            <Search className="h-4 w-4 text-slate-400 group-hover:text-blue-500 mr-3" />
+            <span className="text-sm text-slate-400 flex-1">Search portal...</span>
+            <div className="flex space-x-1">
+              <kbd className="h-5 rounded border border-slate-200 bg-slate-50 px-1.5 font-mono text-[10px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-950">⌘</kbd>
+              <kbd className="h-5 rounded border border-slate-200 bg-slate-50 px-1.5 font-mono text-[10px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-950">K</kbd>
+            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+            <Button variant="outline" size="sm" onClick={() => setActiveTab('notifications')} className="rounded-xl border-slate-200 dark:border-slate-800">
+              <Bell className="h-4 w-4 mr-2" />
+              Notifications
+            </Button>
+          </div>
+        </div>
+
+        <GlobalSearchOverlay 
+          isOpen={isSearchOpen}
+          onOpenChange={setIsSearchOpen}
+          data={{ clients, projects, tasks, leads, campaigns, payments, clientCustomers, clientPayments, sessions: scheduledSessions, messages }}
+          setActiveTab={setActiveTab}
+          role={role}
+        />
+
         <AnimatePresence mode="wait">
           {incomingCall && activeTab !== 'dashboard' && (
             <motion.div 
@@ -915,7 +1165,7 @@ Client: ____________________`,
             </motion.div>
           )}
 
-          {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} onStartCall={setActiveCall} incomingCall={incomingCall} setActiveTab={setActiveTab} />}
+          {activeTab === 'dashboard' && <DashboardView clients={clients} projects={projects} tasks={tasks} sessions={scheduledSessions} payments={payments} onStartCall={setActiveCall} incomingCall={incomingCall} setActiveTab={setActiveTab} />}
           {activeTab === 'notifications' && (
             <NotificationsView 
               notifications={notifications} 
@@ -923,13 +1173,16 @@ Client: ____________________`,
               onStartCall={(data) => setActiveCall(data)} 
             />
           )}
-          {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
-          {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} />}
+          {activeTab === 'clients' && <ClientsView clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} setActiveTab={setActiveTab} />}
+          {activeTab === 'projects' && <ProjectsView projects={projects} clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'tasks' && <TasksView tasks={tasks} projects={projects} clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
+          {activeTab === 'leads' && <LeadsView leads={leads} clients={clients} user={user} />}
+          {activeTab === 'campaigns' && <CampaignsView campaigns={campaigns} clients={clients} user={user} />}
           {activeTab === 'payments' && <PaymentsAnalyticsView payments={payments} clients={clients} projects={projects} />}
           {activeTab === 'sessions' && <SessionsView sessions={scheduledSessions} clients={clients} user={user} role={role} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'messages' && <MessagesView messages={messages} clients={clients} user={user} />}
           {activeTab === 'templates' && <ContractTemplatesView templates={contractTemplates} clients={clients} user={user} sendNotification={sendNotification} />}
+          {activeTab === 'outreach' && <AdminOutreachView clients={clients} user={user} sendNotification={sendNotification} />}
         </AnimatePresence>
       </main>
 
@@ -1375,16 +1628,179 @@ function ThemeToggle({ theme, toggleTheme }: { theme: 'light' | 'dark', toggleTh
     <Button 
       variant="ghost" 
       size="icon" 
-      onClick={toggleTheme} 
-      className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-      title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+      onClick={toggleTheme}
+      className="rounded-xl h-10 w-10 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
     >
-      {theme === 'light' ? (
-        <Moon className="h-5 w-5" />
-      ) : (
-        <Sun className="h-5 w-5" />
-      )}
+      {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
     </Button>
+  );
+}
+
+function GlobalSearchOverlay({ 
+  isOpen, 
+  onOpenChange, 
+  data, 
+  setActiveTab,
+  role
+}: { 
+  isOpen: boolean, 
+  onOpenChange: (open: boolean) => void,
+  data: {
+    clients: Client[],
+    projects: Project[],
+    tasks: Task[],
+    leads: Lead[],
+    campaigns: Campaign[],
+    payments: Payment[],
+    clientCustomers: ClientCustomer[],
+    clientPayments: ClientPayment[],
+    sessions: ScheduledSession[],
+    messages: Message[]
+  },
+  setActiveTab: (tab: string) => void,
+  role: string | null
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+
+    const q = query.toLowerCase();
+    const matches: SearchResult[] = [];
+
+    // Search Clients (Admin only)
+    if (role === 'admin') {
+      data.clients.forEach(c => {
+        if (c.name.toLowerCase().includes(q) || c.company.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)) {
+          matches.push({ id: c.id, title: c.name, subtitle: c.company, type: 'client', tab: 'clients' });
+        }
+      });
+    }
+
+    // Search Projects
+    data.projects.forEach(p => {
+      if (p.title.toLowerCase().includes(q) || (p.description?.toLowerCase().includes(q))) {
+        matches.push({ id: p.id, title: p.title, subtitle: p.clientName, type: 'project', tab: 'projects' });
+      }
+    });
+
+    // Search Tasks
+    data.tasks.forEach(t => {
+      if (t.title.toLowerCase().includes(q) || (t.description?.toLowerCase().includes(q))) {
+        matches.push({ id: t.id, title: t.title, subtitle: `Status: ${t.status}`, type: 'task', tab: 'tasks' });
+      }
+    });
+
+    // Search Leads
+    data.leads.forEach(l => {
+      if (l.name.toLowerCase().includes(q) || (l.email?.toLowerCase().includes(q))) {
+        matches.push({ id: l.id, title: l.name, subtitle: `Source: ${l.source || 'Unknown'}`, type: 'lead', tab: 'leads' });
+      }
+    });
+
+    // Search Campaigns
+    data.campaigns.forEach(c => {
+      if (c.title.toLowerCase().includes(q) || (c.content.toLowerCase().includes(q))) {
+        matches.push({ id: c.id, title: c.title, subtitle: campIcon(c.type), type: 'campaign', tab: 'campaigns' });
+      }
+    });
+
+    // Search Customers (Client POV)
+    data.clientCustomers.forEach(c => {
+      if (c.name.toLowerCase().includes(q) || (c.email?.toLowerCase().includes(q))) {
+        matches.push({ id: c.id, title: c.name, subtitle: c.company, type: 'customer', tab: 'customers' });
+      }
+    });
+
+    // Search Payments
+    data.payments.forEach(p => {
+      if (p.description?.toLowerCase().includes(q) || p.projectTitle?.toLowerCase().includes(q)) {
+        matches.push({ id: p.id, title: `Payment #${p.id.slice(-6)}`, subtitle: `$${p.amount}`, type: 'payment', tab: 'payments' });
+      }
+    });
+
+    setResults(matches.slice(0, 8));
+  }, [query, data, role]);
+
+  const campIcon = (type: string) => type === 'Email' ? '📧 Email' : '📱 SMS';
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden rounded-[2rem] border-slate-200 dark:border-slate-800 shadow-2xl">
+        <div className="flex items-center border-b border-slate-100 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-900/50">
+          <Search className="h-5 w-5 text-slate-400 mr-3" />
+          <input 
+            autoFocus
+            placeholder="Search projects, tasks, clients..." 
+            className="flex-1 bg-transparent border-none outline-none text-slate-900 dark:text-white font-medium placeholder:text-slate-400"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+          <div className="flex space-x-1">
+            <kbd className="h-5 rounded border border-slate-200 bg-white px-1.5 font-mono text-[10px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-950">ESC</kbd>
+          </div>
+        </div>
+        <ScrollArea className="max-h-[400px]">
+          {results.length > 0 ? (
+            <div className="p-2">
+              {results.map((r, i) => (
+                <button
+                  key={`${r.id}-${i}`}
+                  onClick={() => {
+                    setActiveTab(r.tab);
+                    onOpenChange(false);
+                    setQuery('');
+                  }}
+                  className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all text-left group"
+                >
+                  <div className="flex items-center">
+                    <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mr-4 group-hover:bg-blue-600 transition-colors">
+                      {r.type === 'client' && <Users className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                      {r.type === 'project' && <Briefcase className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                      {r.type === 'task' && <CheckSquare className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                      {r.type === 'lead' && <TrendingUp className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                      {r.type === 'campaign' && <Mail className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                      {r.type === 'customer' && <Users className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                      {r.type === 'payment' && <DollarSign className="h-5 w-5 text-slate-400 group-hover:text-white" />}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-white">{r.title}</p>
+                      <p className="text-xs text-slate-500 uppercase tracking-widest font-black opacity-60">{r.subtitle}</p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest opacity-40">
+                    {r.type}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          ) : query ? (
+            <div className="p-12 text-center">
+              <Search className="h-12 w-12 text-slate-200 dark:text-slate-800 mx-auto mb-4" />
+              <p className="text-slate-500 font-medium">No results found for "{query}"</p>
+            </div>
+          ) : (
+            <div className="p-8 space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-4">Pro Tips</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
+                  <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">Slash Search</p>
+                  <p className="text-[10px] text-slate-500">Search for specific status like "Todo" or "Planning"</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
+                  <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">Direct Go-To</p>
+                  <p className="text-[10px] text-slate-500">Click a result to jump directly to that tab section</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1626,10 +2042,15 @@ function NotificationsView({ notifications, setActiveTab, onStartCall }: { notif
   );
 }
 
-function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomingCall, setActiveTab }: { clients: Client[], projects: Project[], tasks: Task[], sessions: ScheduledSession[], onStartCall: (callData: any) => void, incomingCall?: any, setActiveTab: (tab: string) => void }) {
+function DashboardView({ clients, projects, tasks, sessions, payments, onStartCall, incomingCall, setActiveTab }: { clients: Client[], projects: Project[], tasks: Task[], sessions: ScheduledSession[], payments: Payment[], onStartCall: (callData: any) => void, incomingCall?: any, setActiveTab: (tab: string) => void }) {
   const activeProjects = projects.filter(p => p.status !== 'Completed');
   const pendingTasks = tasks.filter(t => t.status !== 'Done');
   const sessionRequests = sessions.filter(s => s.status === 'Requested');
+  
+  const totalRevenue = payments.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.amount, 0);
+  const pendingRevenue = payments.filter(p => p.status === 'Pending').reduce((sum, p) => sum + p.amount, 0);
+  const totalPaidProjects = projects.filter(p => p.paymentStatus === 'Fully Paid').length;
+  const pendingTransactions = payments.filter(p => p.status === 'Pending').length;
   
   return (
     <motion.div 
@@ -1668,9 +2089,16 @@ function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomi
 
       <div className="grid gap-6 md:grid-cols-4">
         <StatCard title="Total Clients" value={clients.length} icon={<Users className="h-5 w-5" />} />
+        <StatCard title="Total Revenue" value={`$${totalRevenue.toLocaleString()}`} icon={<DollarSign className="h-5 w-5 text-green-500" />} />
+        <StatCard title="Pending Revenue" value={`$${pendingRevenue.toLocaleString()}`} icon={<Clock className="h-5 w-5 text-amber-500" />} />
+        <StatCard title="Paid Projects" value={totalPaidProjects} icon={<CheckCircle2 className="h-5 w-5 text-blue-500" />} />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-4">
         <StatCard title="Active Projects" value={activeProjects.length} icon={<Briefcase className="h-5 w-5" />} />
         <StatCard title="Pending Tasks" value={pendingTasks.length} icon={<CheckSquare className="h-5 w-5" />} />
         <StatCard title="Session Requests" value={sessionRequests.length} icon={<Video className="h-5 w-5" />} />
+        <StatCard title="Pending Trans." value={pendingTransactions} icon={<TrendingUp className="h-5 w-5" />} />
       </div>
 
       {sessionRequests.length > 0 && (
@@ -1780,7 +2208,7 @@ function DashboardView({ clients, projects, tasks, sessions, onStartCall, incomi
   );
 }
 
-function StatCard({ title, value, icon }: { title: string, value: number, icon: React.ReactNode }) {
+function StatCard({ title, value, icon }: { title: string, value: string | number, icon: React.ReactNode }) {
   return (
     <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm transition-colors">
       <CardContent className="flex items-center p-6">
@@ -1796,7 +2224,7 @@ function StatCard({ title, value, icon }: { title: string, value: number, icon: 
   );
 }
 
-function ClientsView({ clients, user, onStartCall, sendNotification }: { clients: Client[], user: User, onStartCall: (callData: any) => void, sendNotification: any }) {
+function ClientsView({ clients, user, onStartCall, sendNotification, setActiveTab }: { clients: Client[], user: User, onStartCall: (callData: any) => void, sendNotification: any, setActiveTab?: (tab: string) => void }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [managingClient, setManagingClient] = useState<Client | null>(null);
@@ -1981,7 +2409,12 @@ function ClientsView({ clients, user, onStartCall, sendNotification }: { clients
               <TableRow key={client.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors">
                 <TableCell>
                   <div className="flex flex-col">
-                    <span className="font-medium text-slate-900 dark:text-white">{client.name}</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-slate-900 dark:text-white">{client.name}</span>
+                      {client.lastActive && (Date.now() - (client.lastActive.seconds * 1000) < 120000) && (
+                        <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Online now" />
+                      )}
+                    </div>
                     <span className="text-xs text-slate-500 dark:text-slate-400">{client.company}</span>
                   </div>
                 </TableCell>
@@ -2033,6 +2466,17 @@ function ClientsView({ clients, user, onStartCall, sendNotification }: { clients
                     >
                       <Video className="h-4 w-4" />
                     </Button>
+                    {setActiveTab && (
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setActiveTab('outreach')} 
+                        className="text-slate-400 hover:text-green-600 dark:hover:text-green-400"
+                        title="Mass Outreach"
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -2081,12 +2525,21 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
   const [payments, setPayments] = useState<Payment[]>([]);
   const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [vitals, setVitals] = useState<Vital[]>([]);
+  const [clientRevenue, setClientRevenue] = useState<ClientPayment[]>([]);
+  const [clientCusts, setClientCusts] = useState<ClientCustomer[]>([]);
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
   const [isAddVitalOpen, setIsAddVitalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({
     title: '',
     category: 'Login' as Vital['category'], 
     instructions: ''
+  });
+  const [featureForm, setFeatureForm] = useState<Client['features']>({
+    emailCampaigns: client.features?.emailCampaigns ?? false,
+    smsCampaigns: client.features?.smsCampaigns ?? false,
+    liveSessions: client.features?.liveSessions ?? false,
+    leads: client.features?.leads ?? false,
+    marketingTools: client.features?.marketingTools ?? false
   });
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
@@ -2118,11 +2571,23 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
       setVitals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vital)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'vitals'));
 
+    const revQuery = query(collection(db, 'clientPayments'), where('clientId', '==', client.id), orderBy('date', 'desc'));
+    const unsubRev = onSnapshot(revQuery, (snapshot) => {
+      setClientRevenue(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientPayment)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'clientPayments'));
+
+    const custQuery = query(collection(db, 'clientCustomers'), where('clientId', '==', client.id), orderBy('name', 'asc'));
+    const unsubCusts = onSnapshot(custQuery, (snapshot) => {
+      setClientCusts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientCustomer)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'clientCustomers'));
+
     return () => {
       unsubContracts();
       unsubPayments();
       unsubProjects();
       unsubVitals();
+      unsubRev();
+      unsubCusts();
     };
   }, [client.id]);
 
@@ -2239,11 +2704,84 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
           <DialogDescription>Add and manage information visible to the client in their portal.</DialogDescription>
         </DialogHeader>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="contracts">Contracts</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="vitals">Vitals</TabsTrigger>
+            <TabsTrigger value="revenue">Revenue</TabsTrigger>
+            <TabsTrigger value="features">Features</TabsTrigger>
           </TabsList>
+          
+          <TabsContent value="features" className="space-y-4 py-4">
+            <div className="flex flex-col space-y-4">
+              <h3 className="text-sm font-medium">Toggle Client Features</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="feat-email" 
+                    checked={featureForm.emailCampaigns} 
+                    onChange={e => setFeatureForm({...featureForm, emailCampaigns: e.target.checked})}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  />
+                  <Label htmlFor="feat-email">Email Campaigns</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="feat-sms" 
+                    checked={featureForm.smsCampaigns} 
+                    onChange={e => setFeatureForm({...featureForm, smsCampaigns: e.target.checked})}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  />
+                  <Label htmlFor="feat-sms">SMS Campaigns</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="feat-live" 
+                    checked={featureForm.liveSessions} 
+                    onChange={e => setFeatureForm({...featureForm, liveSessions: e.target.checked})}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  />
+                  <Label htmlFor="feat-live">Client Live Sessions</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="feat-leads" 
+                    checked={featureForm.leads} 
+                    onChange={e => setFeatureForm({...featureForm, leads: e.target.checked})}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  />
+                  <Label htmlFor="feat-leads">Leads (PPL/PPA)</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="feat-marketing" 
+                    checked={featureForm.marketingTools} 
+                    onChange={e => setFeatureForm({...featureForm, marketingTools: e.target.checked})}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  />
+                  <Label htmlFor="feat-marketing">AI Marketing Tools</Label>
+                </div>
+              </div>
+              <Button 
+                onClick={async () => {
+                  try {
+                    await updateDoc(doc(db, 'clients', client.id), { features: featureForm });
+                    toast.success('Features updated for client');
+                  } catch (error) {
+                    handleFirestoreError(error, OperationType.UPDATE, 'clients');
+                  }
+                }}
+                className="bg-slate-900 text-white"
+              >
+                Save Feature Access
+              </Button>
+            </div>
+          </TabsContent>
           
           <TabsContent value="contracts" className="space-y-4 py-4">
             <div className="flex justify-between items-center">
@@ -2400,11 +2938,29 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
                       <TableCell><Badge variant="ghost" className="text-[10px]">{p.type}</Badge></TableCell>
                       <TableCell className="font-bold">${p.amount}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={async () => {
-                          if (confirm('Delete this payment record? Project totals will not be automatically reverted.')) {
-                            await deleteDoc(doc(db, 'payments', p.id));
-                          }
-                        }}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                        <div className="flex justify-end space-x-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => {
+                              const newAmount = prompt('Edit Amount:', p.amount.toString());
+                              const newDate = prompt('Edit Date (YYYY-MM-DD):', p.date);
+                              if (newAmount !== null && newDate !== null) {
+                                updateDoc(doc(db, 'payments', p.id), { 
+                                  amount: Number(newAmount), 
+                                  date: newDate 
+                                });
+                              }
+                            }}
+                          >
+                            <Edit3 className="h-4 w-4 text-slate-400" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={async () => {
+                            if (confirm('Delete this payment record? Project totals will not be automatically reverted.')) {
+                              await deleteDoc(doc(db, 'payments', p.id));
+                            }
+                          }}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -2416,17 +2972,42 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
           <TabsContent value="vitals" className="space-y-4 py-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-medium">Digital Vitals</h3>
-              <Button 
-                type="button"
-                size="sm" 
-                onClick={() => {
-                  console.log('Toggling vital form:', !isAddVitalOpen);
-                  setIsAddVitalOpen(!isAddVitalOpen);
-                }} 
-                className="bg-slate-900 text-white"
-              >
-                {isAddVitalOpen ? 'Cancel' : <><Plus className="h-4 w-4 mr-1" /> Request Info</>}
-              </Button>
+              <div className="flex space-x-2">
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={async () => {
+                    const requiredVitals = [
+                      { title: 'Legal Business Name', category: 'General', instructions: 'Please provide the exact legal name of your business as registered.' },
+                      { title: 'EIN / Tax ID', category: 'General', instructions: 'Required for merchant processing and contracts.' }
+                    ];
+                    for (const v of requiredVitals) {
+                      await addDoc(collection(db, 'vitals'), {
+                        ...v,
+                        clientId: client.id,
+                        status: 'Pending',
+                        isRequestedByAdmin: true,
+                        createdAt: serverTimestamp()
+                      });
+                    }
+                    if (client.uid) {
+                      await sendNotification(client.uid, 'Required Vitals', 'Allie has requested your basic business vitals.', 'message');
+                    }
+                    toast.success('Requested required vitals');
+                  }}
+                  className="text-xs"
+                >
+                  Request Required
+                </Button>
+                <Button 
+                  type="button"
+                  size="sm" 
+                  onClick={() => setIsAddVitalOpen(!isAddVitalOpen)} 
+                  className="bg-slate-900 text-white"
+                >
+                  {isAddVitalOpen ? 'Cancel' : <><Plus className="h-4 w-4 mr-1" /> Request Custom</>}
+                </Button>
+              </div>
             </div>
 
             {isAddVitalOpen && (
@@ -2506,14 +3087,30 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
                         <span className="font-bold">Instructions:</span> {v.instructions}
                       </div>
                     ) }
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => deleteDoc(doc(db, 'vitals', v.id))}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
+                    <div className="flex justify-end space-x-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          const newTitle = prompt('Edit Title:', v.title);
+                          const newInstructions = prompt('Edit Instructions:', v.instructions);
+                          if (newTitle !== null && newInstructions !== null) {
+                            updateDoc(doc(db, 'vitals', v.id), { title: newTitle, instructions: newInstructions });
+                          }
+                        }}
+                      >
+                        <Edit3 className="h-4 w-4 text-slate-400" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => deleteDoc(doc(db, 'vitals', v.id))}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {vitals.length === 0 && (
@@ -2524,13 +3121,68 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
               </div>
             </ScrollArea>
           </TabsContent>
+
+          <TabsContent value="revenue" className="space-y-4 py-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-medium">Client's Internal Revenue</h3>
+              <div className="flex space-x-4">
+                <div className="text-right">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Total Made</p>
+                  <p className="text-sm font-bold text-green-600">${clientRevenue.reduce((acc, p) => acc + (p.status === 'Paid' ? p.amount : 0), 0).toLocaleString()}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Refunds</p>
+                  <p className="text-sm font-bold text-red-600">${clientRevenue.reduce((acc, p) => acc + (p.status === 'Refunded' ? p.amount : 0), 0).toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+            <ScrollArea className="h-[350px]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clientRevenue.map(p => {
+                    const cust = clientCusts.find(c => c.id === p.customerId);
+                    const proj = clientProjects.find(pr => pr.id === p.projectId);
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-[10px]">{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString() : '...'}</TableCell>
+                        <TableCell className="text-xs font-medium">{cust?.name || 'Unknown'}</TableCell>
+                        <TableCell className="text-xs">{proj?.title || 'External'}</TableCell>
+                        <TableCell className="text-xs font-bold">${p.amount.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={p.status === 'Paid' ? 'outline' : 'destructive'} className="text-[9px] uppercase">
+                            {p.status}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {clientRevenue.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-10 text-slate-400 text-xs italic">
+                        No internal revenue records for this client.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>
   );
 }
 
-function ProjectsView({ projects, clients, user, onStartCall }: { projects: Project[], clients: Client[], user: User, onStartCall: (callData: any) => void }) {
+function ProjectsView({ projects, clients, user, onStartCall, sendNotification }: { projects: Project[], clients: Client[], user: User, onStartCall: (callData: any) => void, sendNotification: any }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [formData, setFormData] = useState({ 
@@ -2550,14 +3202,25 @@ function ProjectsView({ projects, clients, user, onStartCall }: { projects: Proj
   const handleAdd = async () => {
     try {
       const client = clients.find(c => c.id === formData.clientId);
-      await addDoc(collection(db, 'projects'), {
+      const docRef = await addDoc(collection(db, 'projects'), {
         ...formData,
         clientName: client?.name || 'Unknown',
         createdAt: serverTimestamp(),
         createdBy: user.uid
       });
+
+      if (client?.uid) {
+        await sendNotification(
+          client.uid,
+          'New Project Created',
+          `Allie has created a new project: ${formData.title}. You can view it in your products tab.`,
+          'project'
+        );
+      }
+
       setIsAddOpen(false);
       resetForm();
+      toast.success('Project created and client notified');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'projects');
     }
@@ -2883,43 +3546,47 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
   const toggleStatus = async (task: Task) => {
     const nextStatus = task.status === 'Todo' ? 'In Progress' : task.status === 'In Progress' ? 'Done' : 'Todo';
     try {
-      await updateDoc(doc(db, 'tasks', task.id), { status: nextStatus });
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: nextStatus,
+        updatedAt: serverTimestamp() 
+      });
       
-      // If task is completed and has a client, notify them
       if (nextStatus === 'Done' && (task.clientId || task.projectId)) {
-        let notifyUserId = '';
-        let clientName = task.clientName || 'Client';
-        
-        if (task.clientId) {
-          // If it was a direct client request
-          const client = clients.find(c => c.id === task.clientId);
-          if (client) {
-            // We need a way to map client ID to user ID. 
-            // In this system, user.email is used for login. 
-            // Let's assume the notification system uses email or UID.
-            // The ClientPortal setup uses user.email to link.
-            // Notifications seem to use userId (which is auth.uid).
-            // We'll try to find the user by email if we can, or just send to the email string if the system handles it.
-            // Looking at handleTaskRequest, sendNotification takes email.
-            await sendNotification(
-              client.email,
-              'Task Completed',
-              `Allie has finished your task: ${task.title}`,
-              'contract' // Generic complete type
-            );
-          }
-        } else if (task.projectId !== 'Global') {
-          // If it's linked to a project, notify that project's client
-          const project = projects.find(p => p.id === task.projectId);
-          const client = clients.find(c => c.id === project?.clientId);
-          if (client) {
-            await sendNotification(
-              client.email,
-              'Task Completed',
-              `A task for your product "${project?.title}" has been completed: ${task.title}`,
-              'contract'
-            );
-          }
+        const client = task.clientId 
+          ? clients.find(c => c.id === task.clientId)
+          : clients.find(c => c.id === projects.find(p => p.id === task.projectId)?.clientId);
+
+        if (client && client.uid) {
+          await sendNotification(
+            client.uid,
+            'Task Completed',
+            `Allie has finished your task: ${task.title}`,
+            'contract'
+          );
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'tasks');
+    }
+  };
+
+  const handleDecline = async (task: Task) => {
+    if (!confirm('Decline this task request?')) return;
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'Declined',
+        updatedAt: serverTimestamp()
+      });
+      
+      if (task.clientId) {
+        const client = clients.find(c => c.id === task.clientId);
+        if (client && client.uid) {
+          await sendNotification(
+            client.uid,
+            'Task Declined',
+            `The task request "${task.title}" could not be completed at this time.`,
+            'message'
+          );
         }
       }
     } catch (error) {
@@ -3000,6 +3667,7 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           clients={clients}
           onToggle={toggleStatus} 
           onDelete={handleDelete} 
+          onDecline={handleDecline}
           onStartCall={onStartCall}
         />
         <TaskColumn 
@@ -3009,6 +3677,7 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           clients={clients}
           onToggle={toggleStatus} 
           onDelete={handleDelete} 
+          onDecline={handleDecline}
           onStartCall={onStartCall}
         />
         <TaskColumn 
@@ -3020,12 +3689,30 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           onDelete={handleDelete} 
           onStartCall={onStartCall}
         />
+        <TaskColumn 
+          title="Declined" 
+          tasks={tasks.filter(t => t.status === 'Declined')} 
+          projects={projects}
+          clients={clients}
+          onToggle={toggleStatus} 
+          onDelete={handleDelete} 
+          onStartCall={onStartCall}
+        />
       </div>
     </motion.div>
   );
 }
 
-function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onStartCall }: { title: string, tasks: Task[], projects: Project[], clients: Client[], onToggle: (t: Task) => void, onDelete: (id: string) => void, onStartCall: (callData: any) => void }) {
+function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onDecline, onStartCall }: { 
+  title: string, 
+  tasks: Task[], 
+  projects: Project[], 
+  clients: Client[], 
+  onToggle: (t: Task) => void, 
+  onDelete: (id: string) => void, 
+  onDecline?: (t: Task) => void,
+  onStartCall: (callData: any) => void 
+}) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between px-1">
@@ -3052,9 +3739,16 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onSta
                   <p className={`text-sm font-semibold text-slate-900 dark:text-white transition-colors ${task.status === 'Done' ? 'line-through opacity-50' : ''}`}>
                     {task.title}
                   </p>
-                  <button onClick={() => onToggle(task)} className="text-slate-300 hover:text-slate-900 dark:text-slate-600 dark:hover:text-white transition-colors">
-                    <CheckSquare className={`h-4 w-4 ${task.status === 'Done' ? 'text-green-500' : ''}`} />
-                  </button>
+                  <div className="flex space-x-1">
+                    {onDecline && task.status === 'Todo' && (
+                      <button onClick={() => onDecline(task)} className="text-slate-300 hover:text-red-500 transition-colors">
+                        <XCircle className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button onClick={() => onToggle(task)} className="text-slate-300 hover:text-slate-900 dark:text-slate-600 dark:hover:text-white transition-colors">
+                      <CheckSquare className={`h-4 w-4 ${task.status === 'Done' ? 'text-green-500' : ''}`} />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex flex-col mb-3">
                   <div className="flex items-center justify-between">
@@ -3101,11 +3795,20 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onSta
 
 function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Payment[], clients: Client[], projects: Project[] }) {
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [linkForm, setLinkForm] = useState({
     clientId: '',
     projectId: '',
     paythenUrl: '',
     method: 'email' as 'email' | 'sms'
+  });
+
+  const [editForm, setEditForm] = useState({
+    amount: 0,
+    status: 'Pending' as Payment['status'],
+    date: '',
+    notes: '',
+    projectTitle: ''
   });
 
   const totalRevenue = payments
@@ -3130,6 +3833,28 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
     setIsLinkDialogOpen(false);
   };
 
+  const handleUpdatePayment = async () => {
+    if (!editingPayment) return;
+    try {
+      await updateDoc(doc(db, 'payments', editingPayment.id), editForm);
+      setEditingPayment(null);
+      toast.success('Payment updated successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'payments');
+    }
+  };
+
+  const handleDeletePayment = async (id: string) => {
+    if (confirm('Are you sure you want to delete this payment record?')) {
+      try {
+        await deleteDoc(doc(db, 'payments', id));
+        toast.success('Payment deleted');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'payments');
+      }
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -3139,170 +3864,153 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
     >
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Payments & Analytics</h1>
-          <p className="text-slate-500 dark:text-slate-400">Track revenue and manage client payment links.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Payments & Analytics</h1>
+          <p className="text-slate-500 dark:text-slate-400">Track revenue and manage client payment records.</p>
         </div>
-        <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
-          <DialogTrigger render={<Button className="bg-slate-900 text-white hover:bg-slate-800" />}>
-            <Send className="mr-2 h-4 w-4" /> Send Payment Link
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Send Paythen Link</DialogTitle>
-              <DialogDescription>Send a payment link to your client via email or text.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Client</Label>
-                <Select value={linkForm.clientId} onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        <div className="flex space-x-3">
+          <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+            <DialogTrigger render={<Button className="bg-slate-900 text-white hover:bg-slate-800" />}>
+              <Send className="mr-2 h-4 w-4" /> Send Payment Link
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Send Paythen Link</DialogTitle>
+                <DialogDescription>Send a payment link to your client via email or text.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Client</Label>
+                  <Select value={linkForm.clientId} onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Paythen URL</Label>
+                  <Input 
+                    placeholder="https://paythen.co/..." 
+                    value={linkForm.paythenUrl} 
+                    onChange={e => setLinkForm({ ...linkForm, paythenUrl: e.target.value })} 
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Method</Label>
+                  <Select value={linkForm.method} onValueChange={(v: any) => setLinkForm({ ...linkForm, method: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="sms">Text (SMS)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label>Paythen URL</Label>
-                <Input 
-                  placeholder="https://paythen.co/..." 
-                  value={linkForm.paythenUrl} 
-                  onChange={e => setLinkForm({ ...linkForm, paythenUrl: e.target.value })} 
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Method</Label>
-                <Select value={linkForm.method} onValueChange={(v: any) => setLinkForm({ ...linkForm, method: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="sms">Text (SMS)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button onClick={handleSendLink} className="bg-slate-900 text-white w-full">
-                Send via {linkForm.method === 'email' ? 'Email' : 'SMS'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button onClick={handleSendLink} className="bg-slate-900 text-white w-full">
+                  Send via {linkForm.method === 'email' ? 'Email' : 'SMS'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </header>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Revenue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-slate-900">${totalRevenue.toLocaleString()}</p>
-          </CardContent>
+      <div className="grid gap-6 md:grid-cols-3">
+        <Card className="p-6 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center justify-between space-y-0 pb-2">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Revenue</h3>
+            <DollarSign className="h-4 w-4 text-green-500" />
+          </div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white">${totalRevenue.toLocaleString()}</div>
         </Card>
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Pending Revenue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-blue-600">${pendingRevenue.toLocaleString()}</p>
-          </CardContent>
+        <Card className="p-6 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center justify-between space-y-0 pb-2">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">Pending Revenue</h3>
+            <Clock className="h-4 w-4 text-amber-500" />
+          </div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white">${pendingRevenue.toLocaleString()}</div>
         </Card>
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Transactions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-slate-900">{payments.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Paid Projects</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-green-600">{projects.filter(p => p.paymentStatus === 'Fully Paid').length}</p>
-          </CardContent>
+        <Card className="p-6 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center justify-between space-y-0 pb-2">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Transactions</h3>
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+          </div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white">{payments.length}</div>
         </Card>
       </div>
 
-      <Card className="border-slate-200 shadow-sm overflow-hidden">
+      <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Recent Transactions</h2>
+        </div>
         <Table>
-          <TableHeader className="bg-slate-50">
-            <TableRow>
-              <TableHead className="font-semibold">Date</TableHead>
-              <TableHead className="font-semibold">Client</TableHead>
-              <TableHead className="font-semibold">Project</TableHead>
-              <TableHead className="font-semibold">Type</TableHead>
-              <TableHead className="font-semibold">Amount</TableHead>
-              <TableHead className="font-semibold">Status</TableHead>
-              <TableHead className="text-right font-semibold">Actions</TableHead>
+          <TableHeader className="bg-slate-50 dark:bg-slate-950">
+            <TableRow className="dark:border-slate-800">
+              <TableHead>Date</TableHead>
+              <TableHead>Client</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {payments.map(payment => {
               const client = clients.find(c => c.id === payment.clientId);
               return (
-                <TableRow key={payment.id} className="hover:bg-slate-50/50 transition-colors">
-                  <TableCell className="text-xs text-slate-500">{payment.date}</TableCell>
+                <TableRow key={payment.id} className="dark:border-slate-800">
+                  <TableCell className="text-sm text-slate-500 dark:text-slate-400">{payment.date}</TableCell>
                   <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-slate-900">{client?.name || 'Unknown'}</span>
-                      <span className="text-[10px] text-slate-500">{client?.company}</span>
+                    <div className="flex flex-col text-sm">
+                      <span className="font-medium text-slate-900 dark:text-white">{client?.name || 'Unknown'}</span>
+                      <span className="text-[10px] text-slate-500">{payment.projectTitle}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-slate-600">{payment.projectTitle}</TableCell>
+                  <TableCell className="font-bold text-slate-900 dark:text-white">${payment.amount.toLocaleString()}</TableCell>
                   <TableCell>
-                    <Badge variant="ghost" className="text-[10px] uppercase">{payment.type}</Badge>
-                  </TableCell>
-                  <TableCell className="font-bold text-slate-900">${payment.amount.toLocaleString()}</TableCell>
-                  <TableCell>
-                    <Badge className={
-                      payment.status === 'Paid' ? 'bg-green-100 text-green-700' :
-                      payment.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
+                    <Badge variant={payment.status === 'Paid' ? 'default' : 'outline'} className={
+                      payment.status === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' :
+                      payment.status === 'Overdue' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' :
+                      'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
                     }>
                       {payment.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={async () => {
-                        if (confirm('Delete this payment record? This will also update the project total.')) {
-                          const project = projects.find(p => p.id === payment.projectId);
-                          if (project) {
-                            const newTotal = Math.max(0, (project.totalPaid || 0) - payment.amount);
-                            let newStatus: Project['paymentStatus'] = project.paymentStatus;
-                            
-                            if (newTotal <= 0) newStatus = 'Not Paid';
-                            else if (newTotal < (project.budget || 0)) newStatus = 'Partially Paid';
-                            else newStatus = 'Fully Paid';
-
-                            await updateDoc(doc(db, 'projects', project.id), {
-                              totalPaid: newTotal,
-                              paymentStatus: newStatus
-                            });
-                          }
-                          await deleteDoc(doc(db, 'payments', payment.id));
-                        }
-                      }}
-                      className="text-slate-400 hover:text-red-600"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex justify-end space-x-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => {
+                          setEditingPayment(payment);
+                          setEditForm({
+                            amount: payment.amount,
+                            status: payment.status,
+                            date: payment.date,
+                            notes: payment.notes || '',
+                            projectTitle: payment.projectTitle || ''
+                          });
+                        }}
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDeletePayment(payment.id)}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               );
             })}
             {payments.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-slate-400">
+                <TableCell colSpan={5} className="text-center py-12 text-slate-400">
                   No payment records found.
                 </TableCell>
               </TableRow>
@@ -3310,11 +4018,490 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={!!editingPayment} onOpenChange={(open) => !open && setEditingPayment(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Payment Record</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Amount ($)</Label>
+                <Input type="number" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: Number(e.target.value)})} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={editForm.status} onValueChange={(v: any) => setEditForm({...editForm, status: v})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Paid">Paid</SelectItem>
+                    <SelectItem value="Overdue">Overdue</SelectItem>
+                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Date</Label>
+              <Input type="date" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Notes</Label>
+              <Input value={editForm.notes} onChange={e => setEditForm({...editForm, notes: e.target.value})} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleUpdatePayment} className="bg-slate-900 text-white w-full">Update Record</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }
 
-function SessionsView({ sessions, clients, user, role, onStartCall, sendNotification, isClientView = false }: { 
+function LeadsView({ leads, clients, user }: { leads: Lead[], clients: Client[], user: User }) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [form, setForm] = useState({
+    clientId: '',
+    name: '',
+    email: '',
+    phone: '',
+    source: '',
+    type: 'Lead' as Lead['type'],
+    notes: '',
+    pricePaid: 0
+  });
+
+  const handleSave = async () => {
+    if (!form.clientId || !form.name) return;
+    try {
+      if (editingLead) {
+        await updateDoc(doc(db, 'leads', editingLead.id), {
+          ...form,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'leads'), {
+          ...form,
+          status: 'New',
+          createdAt: serverTimestamp()
+        });
+      }
+      setIsAddOpen(false);
+      setEditingLead(null);
+      setForm({ clientId: '', name: '', email: '', phone: '', source: '', type: 'Lead', notes: '', pricePaid: 0 });
+      toast.success('Lead saved');
+    } catch (error) {
+      console.error('Error saving lead:', error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this lead?')) return;
+    await deleteDoc(doc(db, 'leads', id));
+  };
+
+  const handleStatusChange = async (id: string, status: Lead['status']) => {
+    await updateDoc(doc(db, 'leads', id), { status });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Leads Management</h2>
+          <p className="text-slate-500 text-sm">Manage Pay Per Lead and Pay Per Appointment cycles.</p>
+        </div>
+        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white dark:bg-white dark:text-slate-900">
+          <Plus className="mr-2 h-4 w-4" /> Add Lead
+        </Button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {leads.map(lead => {
+          const client = clients.find(c => c.id === lead.clientId);
+          return (
+            <Card key={lead.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm transition-all hover:shadow-md">
+              <CardHeader className="pb-2">
+                <div className="flex justify-between items-start">
+                  <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest">{lead.type}</Badge>
+                  <Select value={lead.status} onValueChange={(v: any) => handleStatusChange(lead.id, v)}>
+                    <SelectTrigger className="h-7 w-auto text-[10px] font-bold">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="New">New</SelectItem>
+                      <SelectItem value="Contacted">Contacted</SelectItem>
+                      <SelectItem value="Qualified">Qualified</SelectItem>
+                      <SelectItem value="Appointment Set">Appt Set</SelectItem>
+                      <SelectItem value="Closed">Closed</SelectItem>
+                      <SelectItem value="Lost">Lost</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <CardTitle className="mt-2 text-lg font-bold">{lead.name}</CardTitle>
+                <p className="text-xs text-slate-500 font-medium">{client?.name || 'Assigned to Private Client'}</p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
+                  <Mail className="mr-2 h-3 w-3" /> {lead.email}
+                </div>
+                {lead.phone && (
+                  <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
+                    <Phone className="mr-2 h-3 w-3" /> {lead.phone}
+                  </div>
+                )}
+                <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
+                  <TrendingUp className="mr-2 h-3 w-3" /> Source: {lead.source || 'Direct'}
+                </div>
+                <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Revenue Impact</span>
+                  <span className="font-bold text-green-600">${(lead.pricePaid || 0).toLocaleString()}</span>
+                </div>
+              </CardContent>
+              <CardFooter className="flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                  setEditingLead(lead);
+                  setForm({
+                    clientId: lead.clientId,
+                    name: lead.name,
+                    email: lead.email || '',
+                    phone: lead.phone || '',
+                    source: lead.source || '',
+                    type: lead.type,
+                    notes: lead.notes || '',
+                    pricePaid: lead.pricePaid || 0
+                  });
+                  setIsAddOpen(true);
+                }}>Edit</Button>
+                <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500" onClick={() => handleDelete(lead.id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
+          );
+        })}
+      </div>
+
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{editingLead ? 'Edit Lead' : 'Add New Lead'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>Assigned Client</Label>
+              <Select value={form.clientId} onValueChange={v => setForm({ ...form, clientId: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select client" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Lead Name</Label>
+                <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Source</Label>
+                <Input value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} placeholder="e.g. FB Ads" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Email</Label>
+                <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Phone</Label>
+                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Type</Label>
+                <Select value={form.type} onValueChange={(v: any) => setForm({ ...form, type: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Lead">Lead</SelectItem>
+                    <SelectItem value="Appointment">Appointment</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Price Paid (Cycle Revenue)</Label>
+                <Input type="number" value={form.pricePaid} onChange={e => setForm({ ...form, pricePaid: parseFloat(e.target.value) })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSave} className="bg-slate-900 text-white w-full">Save Lead</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function CampaignsView({ campaigns, clients, user }: { campaigns: Campaign[], clients: Client[], user: User }) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [form, setForm] = useState({
+    clientId: '',
+    title: '',
+    type: 'Email' as Campaign['type'],
+    content: '',
+    scheduledAt: '',
+    recipientCount: 0
+  });
+
+  const handleSave = async () => {
+    if (!form.clientId || !form.title) return;
+    try {
+      if (editingCampaign) {
+        await updateDoc(doc(db, 'campaigns', editingCampaign.id), { ...form });
+      } else {
+        await addDoc(collection(db, 'campaigns'), {
+          ...form,
+          status: 'Draft',
+          createdAt: serverTimestamp()
+        });
+      }
+      setIsAddOpen(false);
+      setEditingCampaign(null);
+      setForm({ clientId: '', title: '', type: 'Email', content: '', scheduledAt: '', recipientCount: 0 });
+      toast.success('Campaign saved');
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleSend = async (id: string) => {
+    await updateDoc(doc(db, 'campaigns', id), { status: 'Sent' });
+    toast.success('Campaign moved to delivery queue');
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Marketing Campaigns</h2>
+          <p className="text-slate-500 text-sm">Launch email and SMS campaigns for your clients.</p>
+        </div>
+        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white">
+          <Plus className="mr-2 h-4 w-4" /> New Campaign
+        </Button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        {campaigns.map(camp => (
+          <Card key={camp.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <Badge variant="secondary" className="text-[10px] uppercase font-black tracking-widest">{camp.type}</Badge>
+                <Badge className={camp.status === 'Sent' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}>{camp.status}</Badge>
+              </div>
+              <CardTitle className="mt-4">{camp.title}</CardTitle>
+              <CardDescription className="line-clamp-2">{camp.content}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center text-xs text-slate-500 space-x-4">
+                <div className="flex items-center"><Users className="mr-1.5 h-3.5 w-3.5" /> {camp.recipientCount || 0} Recipients</div>
+                {camp.scheduledAt && <div className="flex items-center"><Calendar className="mr-1.5 h-3.5 w-3.5" /> {new Date(camp.scheduledAt).toLocaleDateString()}</div>}
+              </div>
+            </CardContent>
+            <CardFooter className="gap-2">
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                setEditingCampaign(camp);
+                setForm({
+                  clientId: camp.clientId,
+                  title: camp.title,
+                  type: camp.type,
+                  content: camp.content,
+                  scheduledAt: camp.scheduledAt || '',
+                  recipientCount: camp.recipientCount || 0
+                });
+                setIsAddOpen(true);
+              }}>Edit</Button>
+              {camp.status !== 'Sent' && (
+                <Button className="flex-1 bg-blue-600 text-white" onClick={() => handleSend(camp.id)}>Send Now</Button>
+              )}
+            </CardFooter>
+          </Card>
+        ))}
+      </div>
+
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Campaign Details</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>Client Assignment</Label>
+              <Select value={form.clientId} onValueChange={v => setForm({ ...form, clientId: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Which client is this for?" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Campaign Title</Label>
+                <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Type</Label>
+                <Select value={form.type} onValueChange={(v: any) => setForm({ ...form, type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Email">Email</SelectItem>
+                    <SelectItem value="SMS">SMS</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Message Content</Label>
+              <textarea 
+                className="min-h-[150px] w-full rounded-xl border border-input p-3 text-sm"
+                value={form.content} 
+                onChange={e => setForm({ ...form, content: e.target.value })} 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSave} className="bg-slate-900 text-white w-full">Save Campaign</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+function MarketingToolsView({ clientId, client }: { clientId: string, client: Client }) {
+  const [prompt, setPrompt] = useState('');
+  const [generatedContent, setGeneratedContent] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerate = async () => {
+    if (!prompt) return;
+    setIsGenerating(true);
+    try {
+      // Logic for AI Generation would go here
+      // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+      // ...
+      setTimeout(() => {
+        setGeneratedContent(`Generated high-converting marketing copy for: ${prompt}\n\n[Sample AI Output would appear here based on the client's brand and goal]`);
+        setIsGenerating(false);
+        toast.success('Content generated successfully');
+      }, 1500);
+    } catch (error) {
+      toast.error('AI Generation failed');
+      setIsGenerating(false);
+    }
+  };
+
+  if (!client.features?.marketingTools) {
+    return <FeatureDisabledView featureName="AI Marketing Tools" />;
+  }
+
+  return (
+    <div className="space-y-8">
+      <header>
+        <h2 className="text-3xl font-black text-slate-900 dark:text-white">AI Marketing Suite</h2>
+        <p className="text-slate-500 font-medium">Create high-converting copy, ads, and emails with Allie AI.</p>
+      </header>
+
+      <div className="grid gap-8 lg:grid-cols-2">
+        <Card className="rounded-[2.5rem] border-slate-200 shadow-xl dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+          <CardHeader className="p-8">
+            <CardTitle className="text-xl font-black">Content Laboratory</CardTitle>
+            <CardDescription className="font-medium">What should Allie write for you today?</CardDescription>
+          </CardHeader>
+          <CardContent className="px-8 pb-8 space-y-6">
+            <div className="grid gap-3">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Campaign Objective</Label>
+              <textarea 
+                className="w-full min-h-[150px] rounded-2xl border-2 border-slate-100 p-4 font-medium dark:border-slate-800 dark:bg-slate-950 focus:border-blue-500 outline-none transition-all"
+                placeholder="e.g. Write a 3-part email sequence for a new SaaS product launch aimed at small business owners..."
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+              />
+            </div>
+            <Button 
+              onClick={handleGenerate} 
+              disabled={isGenerating || !prompt}
+              className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:shadow-2xl transition-all disabled:opacity-50"
+            >
+              {isGenerating ? (
+                <div className="flex items-center"><div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white mr-2" /> Generating...</div>
+              ) : 'Ignite AI Creation'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[2.5rem] border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-950/20 overflow-hidden min-h-[400px] flex flex-col">
+          <CardHeader className="p-8">
+            <CardTitle className="text-xl font-black flex items-center">
+              <Sparkles className="mr-2 h-5 w-5 text-amber-500" /> Output
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-8 pb-8 flex-1">
+            {generatedContent ? (
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl ring-1 ring-slate-200 dark:ring-slate-800 shadow-inner h-full min-h-[300px] whitespace-pre-wrap font-medium text-slate-700 dark:text-slate-300">
+                {generatedContent}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-20">
+                <FileText className="h-16 w-16 mb-4" />
+                <p className="font-bold">Waiting for input...</p>
+                <p className="text-xs uppercase tracking-widest mt-1">Generated content will appear here</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function FeatureDisabledView({ featureName }: { featureName: string }) {
+  return (
+    <Card className="border-slate-200 border-dashed bg-slate-50/50 dark:bg-slate-900/50 dark:border-slate-800 py-32 rounded-[3.5rem]">
+      <div className="flex flex-col items-center justify-center text-center px-4">
+        <div className="h-20 w-20 bg-white dark:bg-slate-800 rounded-3xl flex items-center justify-center shadow-xl mb-6">
+          <LockIcon className="h-10 w-10 text-slate-300" />
+        </div>
+        <h3 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{featureName} Locked</h3>
+        <p className="text-slate-500 dark:text-slate-400 max-w-xs mt-3 font-medium">This feature is not currently enabled for your account. Please contact Allie to upgrade your plan.</p>
+        <Button variant="outline" className="mt-8 rounded-xl font-black uppercase text-[10px] tracking-widest">
+          Request Access
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function SessionsView({ 
+  sessions, 
+  clients, 
+  user, 
+  role,
+  onStartCall,
+  sendNotification,
+  isClientView = false
+}: { 
   sessions: ScheduledSession[], 
   clients: Client[], 
   user: User, 
@@ -3652,14 +4839,60 @@ function SessionsView({ sessions, clients, user, role, onStartCall, sendNotifica
                 )}
 
                 {(session.status === 'Declined' || session.status === 'Completed' || session.status === 'Cancelled') && (
-                  <Button variant="outline" className="w-full dark:border-slate-800 dark:text-slate-500" disabled>
-                    Session {session.status}
-                  </Button>
+                  <div className="space-y-2">
+                    <Button variant="outline" className="w-full dark:border-slate-800 dark:text-slate-500" disabled>
+                      Session {session.status}
+                    </Button>
+                    {session.recordingUrl && (
+                      <Button 
+                        variant="outline" 
+                        className="w-full border-blue-200 text-blue-600 hover:bg-blue-50 dark:border-blue-900/50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                        onClick={() => window.open(session.recordingUrl, '_blank')}
+                      >
+                        <Play className="mr-2 h-3.5 w-3.5 mr-2" /> View Recording
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
             </CardContent>
           </Card>
         ))}
+        
+        {isClientView && clients[0]?.features?.liveSessions && (
+          <Card className="border-2 border-dashed border-blue-200 bg-blue-50/30 dark:bg-blue-950/10 dark:border-blue-900/50 rounded-[2rem] flex flex-col items-center justify-center p-8 text-center transition-all hover:bg-blue-50 dark:hover:bg-blue-950/20">
+            <div className="h-16 w-16 rounded-3xl bg-white dark:bg-slate-800 flex items-center justify-center shadow-lg mb-4 text-blue-600">
+              <Video className="h-8 w-8" />
+            </div>
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">External Video Meeting</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 mb-6 max-w-[200px]">Launch a private meeting room for your own clients or team.</p>
+            <div className="flex flex-col w-full space-y-2">
+              <Button 
+                onClick={() => {
+                  const roomName = `private-room-${Math.random().toString(36).substring(7)}`;
+                  const link = `https://daily.co/${roomName}`; // Simulated link
+                  navigator.clipboard.writeText(link);
+                  toast.success('Meeting link copied to clipboard!');
+                  window.open(link, '_blank');
+                }}
+                className="w-full bg-blue-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest h-11"
+              >
+                Launch Instant Room
+              </Button>
+              <Button 
+                variant="ghost"
+                onClick={() => {
+                  const link = `https://daily.co/allie-meeting-${Math.random().toString(36).substring(7)}`;
+                  navigator.clipboard.writeText(link);
+                  toast.success('Invitation link copied!');
+                }}
+                className="w-full text-blue-600 dark:text-blue-400 font-bold text-xs"
+              >
+                <Share2 className="h-3.5 w-3.5 mr-2" /> Share Link
+              </Button>
+            </div>
+          </Card>
+        )}
         {sessions.length === 0 && (
           <div className="col-span-full py-12 text-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
             <Video className="mx-auto h-12 w-12 mb-4 opacity-20" />
@@ -4062,7 +5295,8 @@ function TaskRequestDialog({ clientId, clientName, projects, onRequested }: { cl
   );
 }
 
-function ClientTaskRequestsView({ tasks, projects, clientId, clientName, onRequested }: { tasks: Task[], projects: Project[], clientId: string, clientName: string, onRequested: (data: any) => Promise<void> }) {
+function ClientTaskRequestsView({ tasks, projects, clientId, clientName, onRequested, onUpdate, onDelete }: { tasks: Task[], projects: Project[], clientId: string, clientName: string, onRequested: (data: any) => Promise<void>, onUpdate: (id: string, data: any) => Promise<void>, onDelete: (id: string) => Promise<void> }) {
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const clientTasks = tasks.filter(t => t.clientId === clientId);
 
   return (
@@ -4096,13 +5330,21 @@ function ClientTaskRequestsView({ tasks, projects, clientId, clientName, onReque
                       }`}>
                         {task.status === 'Done' ? <CheckCircle2 className="h-6 w-6" /> : <Timer className="h-6 w-6" />}
                       </div>
-                      <Badge className={`font-black uppercase text-[10px] tracking-widest px-3 py-1 ${
-                        task.status === 'Done' ? 'bg-green-600 text-white' : 
-                        task.status === 'In Progress' ? 'bg-blue-600 text-white' : 
-                        'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                      }`}>
-                        {task.status}
-                      </Badge>
+                      <div className="flex items-center space-x-2">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-900 dark:hover:text-white" onClick={() => setEditingTask(task)}>
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-400 hover:text-red-500" onClick={() => onDelete(task.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Badge className={`font-black uppercase text-[10px] tracking-widest px-3 py-1 ${
+                          task.status === 'Done' ? 'bg-green-600 text-white' : 
+                          task.status === 'In Progress' ? 'bg-blue-600 text-white' : 
+                          'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                        }`}>
+                          {task.status}
+                        </Badge>
+                      </div>
                     </div>
                     
                     <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-1">{task.title}</h4>
@@ -4143,11 +5385,457 @@ function ClientTaskRequestsView({ tasks, projects, clientId, clientName, onReque
           </div>
         )}
       </div>
+
+      {editingTask && (
+        <EditTaskDialog 
+          task={editingTask} 
+          projects={projects}
+          onClose={() => setEditingTask(null)}
+          onUpdate={(data) => onUpdate(editingTask.id, data)}
+        />
+      )}
     </div>
   );
 }
 
-function ClientPortal({ user, client, projects, tasks, contracts, payments, vitals, scheduledSessions, messages, notifications, sendNotification, onStartCall, incomingCall, onDismissCall, activeTab, setActiveTab, theme, toggleTheme }: { 
+function EditTaskDialog({ task, projects, onClose, onUpdate }: { task: Task, projects: Project[], onClose: () => void, onUpdate: (data: any) => Promise<void> }) {
+  const [formData, setFormData] = useState({
+    title: task.title,
+    projectId: task.projectId || 'Global',
+    dueDate: task.dueDate || '',
+    description: task.description || ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await onUpdate(formData);
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={true} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[500px] rounded-[2rem]">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-black tracking-tight">Edit Task Request</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-6 py-4">
+          <div className="grid gap-2">
+            <Label className="font-bold uppercase text-[10px] tracking-widest text-slate-400">Task Title</Label>
+            <Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="h-12 rounded-xl" />
+          </div>
+          <div className="grid gap-2">
+            <Label className="font-bold uppercase text-[10px] tracking-widest text-slate-400">Description</Label>
+            <textarea 
+              className="min-h-[100px] w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm"
+              value={formData.description} 
+              onChange={e => setFormData({ ...formData, description: e.target.value })} 
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label className="font-bold uppercase text-[10px] tracking-widest text-slate-400">Project</Label>
+              <Select value={formData.projectId} onValueChange={v => setFormData({ ...formData, projectId: v })}>
+                <SelectTrigger className="h-12 rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="Global">General</SelectItem>
+                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label className="font-bold uppercase text-[10px] tracking-widest text-slate-400">Due Date</Label>
+              <Input type="date" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} className="h-12 rounded-xl" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} className="rounded-xl">Cancel</Button>
+            <Button type="submit" disabled={isSubmitting} className="bg-slate-900 text-white rounded-xl">
+              {isSubmitting ? 'Saving...' : 'Update Task'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClientCustomersView({ customers, clientId, clientName }: { customers: ClientCustomer[], clientId: string, clientName: string }) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<ClientCustomer | null>(null);
+  const [form, setForm] = useState({ name: '', email: '', phone: '', company: '', notes: '' });
+
+  const handleSave = async () => {
+    if (!form.name) return;
+    try {
+      if (editingCustomer) {
+        await updateDoc(doc(db, 'clientCustomers', editingCustomer.id), { ...form });
+      } else {
+        await addDoc(collection(db, 'clientCustomers'), {
+          ...form,
+          clientId,
+          createdAt: serverTimestamp()
+        });
+      }
+      setIsAddOpen(false);
+      setEditingCustomer(null);
+      setForm({ name: '', email: '', phone: '', company: '', notes: '' });
+      toast.success('Customer saved');
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this customer?')) return;
+    await deleteDoc(doc(db, 'clientCustomers', id));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white">Customer CRM</h2>
+          <p className="text-slate-500 font-medium tracking-tight">Manage your own client list for campaigns and outreach.</p>
+        </div>
+        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white rounded-2xl h-12 px-6 font-black uppercase text-xs tracking-widest">
+          <Plus className="mr-2 h-4 w-4" /> Add Customer
+        </Button>
+      </div>
+
+      <Card className="rounded-[2.5rem] border-slate-200 shadow-xl overflow-hidden dark:border-slate-800 dark:bg-slate-900 transition-colors">
+        <Table>
+          <TableHeader className="bg-slate-50/50 dark:bg-slate-950/50">
+            <TableRow className="border-none">
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6">Name / Company</TableHead>
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6">Contact Info</TableHead>
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {customers.map(c => (
+              <TableRow key={c.id} className="border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                <TableCell className="p-6">
+                  <div className="font-bold text-slate-900 dark:text-white">{c.name}</div>
+                  <div className="text-xs text-slate-500 font-medium uppercase tracking-widest">{c.company}</div>
+                </TableCell>
+                <TableCell className="p-6 space-y-1">
+                  <div className="flex items-center text-sm font-medium"><Mail className="mr-2 h-3.5 w-3.5 text-slate-400" /> {c.email}</div>
+                  {c.phone && <div className="flex items-center text-sm font-medium"><Phone className="mr-2 h-3.5 w-3.5 text-slate-400" /> {c.phone}</div>}
+                </TableCell>
+                <TableCell className="p-6 text-right space-x-2">
+                  <Button variant="ghost" size="icon" className="rounded-xl h-10 w-10 text-slate-400 hover:text-slate-900 dark:hover:text-white" onClick={() => {
+                    setEditingCustomer(c);
+                    setForm({ name: c.name, email: c.email || '', phone: c.phone || '', company: c.company || '', notes: c.notes || '' });
+                    setIsAddOpen(true);
+                  }}>
+                    <Edit3 className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="rounded-xl h-10 w-10 text-slate-400 hover:text-red-500" onClick={() => handleDelete(c.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Dialog open={isAddOpen} onOpenChange={(o) => { setIsAddOpen(o); if(!o) setEditingCustomer(null); }}>
+        <DialogContent className="sm:max-w-[500px] rounded-[2.5rem]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black">{editingCustomer ? 'Edit' : 'Add'} Customer</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-6 py-6">
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Full Name</Label>
+              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="h-12 rounded-xl" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email</Label>
+                <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="h-12 rounded-xl" />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Phone</Label>
+                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="h-12 rounded-xl" />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Company</Label>
+              <Input value={form.company} onChange={e => setForm({ ...form, company: e.target.value })} className="h-12 rounded-xl" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSave} className="w-full bg-slate-900 text-white rounded-2xl h-14 font-black uppercase tracking-widest">
+              Save Customer Profile
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ClientRevenueView({ payments, customers, projects, clientId }: { payments: ClientPayment[], customers: ClientCustomer[], projects: Project[], clientId: string }) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [form, setForm] = useState({
+    customerId: '',
+    projectId: '',
+    amount: 0,
+    status: 'Paid' as ClientPayment['status'],
+    description: ''
+  });
+
+  const handleAdd = async () => {
+    if (!form.customerId || !form.amount) return;
+    try {
+      await addDoc(collection(db, 'clientPayments'), {
+        ...form,
+        clientId,
+        currency: 'USD',
+        createdAt: serverTimestamp()
+      });
+      setIsAddOpen(false);
+      setForm({ customerId: '', projectId: '', amount: 0, status: 'Paid', description: '' });
+      toast.success('Payment recorded');
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleRefund = async (id: string) => {
+    if (!confirm('Refund this payment?')) return;
+    await updateDoc(doc(db, 'clientPayments', id), { status: 'Refunded' });
+  };
+
+  const totalRevenue = payments.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.amount, 0);
+  const totalRefunds = payments.filter(p => p.status === 'Refunded').reduce((sum, p) => sum + p.amount, 0);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Revenue Laboratory</h2>
+          <p className="text-slate-500 font-medium">Track your income, handle refunds, and manage your card processor activity.</p>
+        </div>
+        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white rounded-2xl h-12 px-6 font-black uppercase text-xs tracking-widest">
+          <CreditCard className="mr-2 h-4 w-4" /> Record Sale
+        </Button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <Card className="rounded-[2.5rem] bg-slate-900 text-white p-8 border-none shadow-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Total Net Intake</p>
+          <p className="text-5xl font-black leading-none">${(totalRevenue - totalRefunds).toLocaleString()}</p>
+        </Card>
+        <Card className="rounded-[2.5rem] bg-white dark:bg-slate-900 p-8 border-slate-200 dark:border-slate-800 shadow-xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Total Gross Sales</p>
+          <p className="text-3xl font-black text-slate-900 dark:text-white">${totalRevenue.toLocaleString()}</p>
+        </Card>
+        <Card className="rounded-[2.5rem] bg-white dark:bg-slate-900 p-8 border-slate-200 dark:border-slate-800 shadow-xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Refunds Processed</p>
+          <p className="text-3xl font-black text-red-500">-${totalRefunds.toLocaleString()}</p>
+        </Card>
+      </div>
+
+      <Card className="rounded-[2.5rem] border-slate-200 shadow-xl overflow-hidden dark:border-slate-800 dark:bg-slate-900 transition-colors">
+        <Table>
+          <TableHeader className="bg-slate-50/50 dark:bg-slate-950/50">
+            <TableRow className="border-none">
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6">Customer / Project</TableHead>
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6">Amount</TableHead>
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6">Status</TableHead>
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6">Date</TableHead>
+              <TableHead className="font-black uppercase text-[10px] tracking-widest p-6 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {payments.map(p => {
+              const customer = customers.find(c => c.id === p.customerId);
+              const project = projects.find(pr => pr.id === p.projectId);
+              return (
+                <TableRow key={p.id} className="border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                  <TableCell className="p-6">
+                    <div className="font-bold text-slate-900 dark:text-white">{customer?.name || 'Unknown Customer'}</div>
+                    <div className="text-xs text-slate-500 font-medium uppercase tracking-widest">{project?.title || 'Direct Payment'}</div>
+                  </TableCell>
+                  <TableCell className="p-6">
+                    <div className="font-black text-lg text-slate-900 dark:text-white tracking-tight">${p.amount.toLocaleString()}</div>
+                  </TableCell>
+                  <TableCell className="p-6">
+                    <Badge className={`font-black uppercase text-[9px] tracking-widest ${
+                      p.status === 'Paid' ? 'bg-green-600' : p.status === 'Refunded' ? 'bg-red-500' : 'bg-slate-500'
+                    }`}>
+                      {p.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="p-6 text-slate-500 font-medium font-mono text-xs">
+                    {p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString() : '...'}
+                  </TableCell>
+                  <TableCell className="p-6 text-right">
+                    {p.status === 'Paid' && (
+                      <Button variant="ghost" size="sm" className="text-red-500 font-black uppercase text-[10px] tracking-widest" onClick={() => handleRefund(p.id)}>
+                        Refund Sale
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent className="sm:max-w-[500px] rounded-[2.5rem]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black">Record External Sale</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-6 py-6">
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select Customer</Label>
+              <Select value={form.customerId} onValueChange={v => setForm({ ...form, customerId: v })}>
+                <SelectTrigger className="h-12 rounded-xl text-xs font-bold uppercase tracking-widest"><SelectValue placeholder="Which customer paid?" /></SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Link to Project (Optional)</Label>
+              <Select value={form.projectId} onValueChange={v => setForm({ ...form, projectId: v })}>
+                <SelectTrigger className="h-12 rounded-xl text-xs font-bold uppercase tracking-widest"><SelectValue placeholder="Direct Payment" /></SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="none">None (Direct)</SelectItem>
+                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sale Amount (USD)</Label>
+              <Input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: parseFloat(e.target.value) })} className="h-14 text-2xl font-black rounded-2xl" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleAdd} className="w-full bg-slate-900 text-white rounded-2xl h-14 font-black uppercase tracking-widest">
+              Confirm Record Sale
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function AdminOutreachView({ clients, user, sendNotification }: { clients: Client[], user: User, sendNotification: any }) {
+  const [selectedClients, setSelectedClients] = useState<string[]>([]);
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+
+  const toggleClient = (id: string) => {
+    setSelectedClients(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const handleSend = async () => {
+    if (selectedClients.length === 0 || !message) return;
+    setIsSending(true);
+    try {
+      for (const clientId of selectedClients) {
+        const client = clients.find(c => c.id === clientId);
+        if (client && client.uid) {
+          await sendNotification(client.uid, subject || 'Message from Allie', message, 'message');
+        }
+      }
+      toast.success('Messages sent successfully');
+      setSelectedClients([]);
+      setSubject('');
+      setMessage('');
+    } catch (error) {
+      toast.error('Failed to send outreach');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <header>
+        <h2 className="text-3xl font-black text-slate-900 dark:text-white">Admin Outreach Suite</h2>
+        <p className="text-slate-500 font-medium">Broadcast messages and notifications to your private clients.</p>
+      </header>
+
+      <div className="grid gap-8 lg:grid-cols-2">
+        <Card className="rounded-[2.5rem] border-slate-200 shadow-xl dark:border-slate-800 dark:bg-slate-900">
+          <CardHeader className="p-8">
+            <CardTitle className="text-xl font-black">Compose Message</CardTitle>
+          </CardHeader>
+          <CardContent className="px-8 pb-8 space-y-6">
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Subject</Label>
+              <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Announcement Subject" className="h-12 rounded-xl" />
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Broadcast Content</Label>
+              <textarea 
+                className="w-full min-h-[200px] rounded-2xl border-2 border-slate-100 p-4 font-medium dark:border-slate-800 dark:bg-slate-950 focus:border-blue-500 outline-none transition-all"
+                placeholder="Type your message here..."
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+              />
+            </div>
+            <Button onClick={handleSend} disabled={isSending || selectedClients.length === 0} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs">
+              {isSending ? 'Sending Broadcast...' : `Dispatch to ${selectedClients.length} Recipients`}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[2.5rem] border-slate-200 shadow-xl dark:border-slate-800 dark:bg-slate-900 overflow-hidden flex flex-col">
+          <CardHeader className="p-8 pb-4 flex flex-row items-center justify-between">
+            <CardTitle className="text-xl font-black">Recipeints</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedClients(selectedClients.length === clients.length ? [] : clients.map(c => c.id))} className="text-[10px] font-black uppercase tracking-widest">
+              {selectedClients.length === clients.length ? 'Deselect All' : 'Select All'}
+            </Button>
+          </CardHeader>
+          <CardContent className="px-8 pb-8 flex-1 overflow-auto max-h-[500px]">
+            <div className="space-y-2">
+              {clients.map(client => (
+                <div 
+                  key={client.id} 
+                  onClick={() => toggleClient(client.id)}
+                  className={`flex items-center justify-between p-4 rounded-2xl cursor-pointer border-2 transition-all ${
+                    selectedClients.includes(client.id) ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/10' : 'border-slate-100 dark:border-slate-800 hover:border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center">
+                    <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mr-4">
+                      {client.name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-white">{client.name}</p>
+                      <p className="text-xs text-slate-500">{client.email}</p>
+                    </div>
+                  </div>
+                  {selectedClients.includes(client.id) && <CheckCircle2 className="h-5 w-5 text-blue-500" />}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ClientPortal({ user, client, projects, tasks, contracts, payments, vitals, scheduledSessions, leads, campaigns, clientCustomers, clientPayments, messages, notifications, sendNotification, onStartCall, incomingCall, onDismissCall, activeTab, setActiveTab, theme, toggleTheme, onOpenSearch }: { 
   user: User, 
   client: Client | null, 
   projects: Project[], 
@@ -4156,6 +5844,10 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
   payments: Payment[], 
   vitals: Vital[],
   scheduledSessions: ScheduledSession[],
+  leads: Lead[],
+  campaigns: Campaign[],
+  clientCustomers: ClientCustomer[],
+  clientPayments: ClientPayment[],
   messages: Message[],
   notifications: Notification[],
   sendNotification: any,
@@ -4165,7 +5857,8 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
   activeTab: string,
   setActiveTab: (tab: string) => void,
   theme: 'light' | 'dark',
-  toggleTheme: () => void
+  toggleTheme: () => void,
+  onOpenSearch: () => void
 }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -4191,11 +5884,16 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   const handleTaskRequest = async (data: any) => {
+    console.log('--- handleTaskRequest START ---', { data, clientId: client.id });
     try {
+      if (!client?.id) {
+        throw new Error('Client ID is missing. Portal may not be correctly linked.');
+      }
+
       const taskData = {
         title: data.title,
         description: data.description || '',
-        projectId: data.projectId,
+        projectId: data.projectId || 'Global',
         clientId: client.id,
         clientName: client.name,
         status: 'Todo',
@@ -4203,16 +5901,45 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
         createdAt: serverTimestamp(),
         createdBy: user.uid
       };
-      await addDoc(collection(db, 'tasks'), taskData);
+
+      console.log('Submitting task to Firestore:', taskData);
+      const docRef = await addDoc(collection(db, 'tasks'), taskData);
+      console.log('Task submitted SUCCESS:', docRef.id);
+
       await sendNotification(
         'ADMIN_GROUP',
         'New Task Requested',
         `${client.name} has requested a new task: ${data.title}`,
-        'message' // Changed to message as it fits task requests well
+        'message'
       );
+      toast.success('Task request submitted successfully');
     } catch (error) {
-      console.error('Error requesting task:', error);
+      console.error('CRITICAL: Error requesting task:', error);
+      toast.error('Failed to submit task request');
+      handleFirestoreError(error, OperationType.CREATE, 'tasks');
       throw error;
+    }
+  };
+
+  const handleTaskDelete = async (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task request?')) return;
+    try {
+      await deleteDoc(doc(db, 'tasks', taskId));
+      toast.success('Task request deleted');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'tasks');
+    }
+  };
+
+  const handleTaskUpdate = async (taskId: string, data: any) => {
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        ...data,
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Task updated');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'tasks');
     }
   };
 
@@ -4285,6 +6012,40 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
           onClick={() => { setActiveTab('sessions'); setIsMobileMenuOpen(false); }} 
         />
       </div>
+
+      <div className="pt-6 space-y-1">
+        <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-400">Growth</p>
+        <SidebarLink 
+          icon={<TrendingUp className="h-5 w-5" />} 
+          label="Leads" 
+          active={activeTab === 'leads'} 
+          onClick={() => { setActiveTab('leads'); setIsMobileMenuOpen(false); }} 
+        />
+        <SidebarLink 
+          icon={<Mail className="h-5 w-5" />} 
+          label="Campaigns" 
+          active={activeTab === 'campaigns'} 
+          onClick={() => { setActiveTab('campaigns'); setIsMobileMenuOpen(false); }} 
+        />
+        <SidebarLink 
+          icon={<Users className="h-5 w-5" />} 
+          label="Customers" 
+          active={activeTab === 'customers'} 
+          onClick={() => { setActiveTab('customers'); setIsMobileMenuOpen(false); }} 
+        />
+        <SidebarLink 
+          icon={<CreditCard className="h-5 w-5" />} 
+          label="Revenue" 
+          active={activeTab === 'revenue'} 
+          onClick={() => { setActiveTab('revenue'); setIsMobileMenuOpen(false); }} 
+        />
+        <SidebarLink 
+          icon={<Sparkles className="h-5 w-5" />} 
+          label="AI Tools" 
+          active={activeTab === 'marketing'} 
+          onClick={() => { setActiveTab('marketing'); setIsMobileMenuOpen(false); }} 
+        />
+      </div>
     </>
   );
 
@@ -4323,9 +6084,9 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
             className="mb-4"
           >
             <img 
-              src="https://www.dropbox.com/scl/fi/vdey7bd72kmt9lz0uzemu/Initial-Square-Shape-AA-Logo.png?rlkey=cs7f7kju2xhku8lhv2fijht2s&st=g20cbojh&raw=1" 
+              src={theme === 'dark' ? LOGO_DARK : LOGO_LIGHT} 
               alt="Ambix Allie Logo" 
-              className="h-32 w-32 rounded-2xl object-contain shadow-lg ring-1 ring-slate-200 dark:ring-slate-700 p-4 bg-white dark:bg-slate-800" 
+              className="h-32 w-32 object-contain" 
               referrerPolicy="no-referrer" 
             />
           </motion.button>
@@ -4354,8 +6115,13 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <div className="hidden sm:block">
-              <h1 className="text-sm font-semibold text-slate-500 uppercase tracking-widest dark:text-slate-400">Client Portal</h1>
+            <div 
+              onClick={onOpenSearch}
+              className="hidden md:flex items-center space-x-3 px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-blue-500 transition-all text-slate-400 min-w-[200px]"
+            >
+              <Search className="h-4 w-4" />
+              <span className="text-xs font-medium">Search portal...</span>
+              <kbd className="hidden lg:inline-flex h-5 rounded border border-slate-200 bg-white px-1.5 font-mono text-[10px] font-medium text-slate-400 dark:border-slate-700 dark:bg-slate-900">⌘K</kbd>
             </div>
           </div>
 
@@ -4439,10 +6205,10 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
                     y: { duration: 4, repeat: Infinity, ease: "easeInOut" },
                     default: { duration: 0.5 }
                   }}
-                  className="flex h-32 w-32 items-center justify-center rounded-[3rem] bg-white p-8 shadow-2xl shadow-slate-200/60 dark:bg-slate-900 dark:shadow-none ring-1 ring-slate-100 dark:ring-slate-800 group cursor-pointer"
+                  className="flex h-32 w-32 items-center justify-center group cursor-pointer"
                 >
                   <img 
-                    src="https://dl.dropboxusercontent.com/scl/fi/vdey7bd72kmt9lz0uzemu/Initial-Square-Shape-AA-Logo.png?rlkey=cs7f7kju2xhku8lhv2fijht2s&raw=1" 
+                    src={theme === 'dark' ? LOGO_DARK : LOGO_LIGHT} 
                     alt="Ambix Allie" 
                     className="h-full w-full object-contain transition-transform duration-700 group-hover:rotate-12"
                     referrerPolicy="no-referrer"
@@ -4467,6 +6233,8 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
               clientId={client.id} 
               clientName={client.name} 
               onRequested={handleTaskRequest} 
+              onUpdate={handleTaskUpdate}
+              onDelete={handleTaskDelete}
             />
           </TabsContent>
 
@@ -4902,7 +6670,7 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
                           <HelpCircle className="h-4 w-4 text-blue-500" />
                         </div>
                         <div>
-                          <span className="font-black text-slate-900 dark:text-slate-200 uppercase text-[10px] tracking-widest block mb-1">Developer Instructions</span>
+                          <span className="font-black text-slate-900 dark:text-user-accent uppercase text-[10px] tracking-widest block mb-1">Vital Instructions</span>
                           <p className="leading-relaxed font-medium">{v.instructions}</p>
                         </div>
                       </div>
@@ -4983,6 +6751,26 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
 
           <TabsContent value="sessions" className="space-y-6">
             <SessionsView sessions={scheduledSessions} clients={client ? [client] : []} user={user} role="client" onStartCall={onStartCall} sendNotification={sendNotification} isClientView={true} />
+          </TabsContent>
+
+          <TabsContent value="leads" className="space-y-6">
+            <LeadsView leads={leads.filter(l => l.clientId === client.id)} clients={[client]} user={user} />
+          </TabsContent>
+
+          <TabsContent value="campaigns" className="space-y-6">
+            <CampaignsView campaigns={campaigns.filter(c => c.clientId === client.id)} clients={[client]} user={user} />
+          </TabsContent>
+
+          <TabsContent value="marketing" className="space-y-6">
+            <MarketingToolsView clientId={client.id} client={client} />
+          </TabsContent>
+
+          <TabsContent value="customers" className="space-y-6">
+            <ClientCustomersView customers={clientCustomers} clientId={client.id} clientName={client.name} />
+          </TabsContent>
+
+          <TabsContent value="revenue" className="space-y-6">
+            <ClientRevenueView payments={clientPayments} customers={clientCustomers} projects={projects} clientId={client.id} />
           </TabsContent>
 
           <TabsContent value="messages" className="space-y-6">

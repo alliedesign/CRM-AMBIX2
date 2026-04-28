@@ -2,222 +2,140 @@
   "entities": {
     "Client": {
       "title": "Client",
-      "description": "A client of Ambix Allie",
+      "description": "A business client managed by Ambix Allie.",
       "type": "object",
       "properties": {
-        "name": { "type": "string", "description": "Client name" },
-        "contactPerson": { "type": "string", "description": "Primary contact person" },
-        "company": { "type": "string", "description": "Company name" },
-        "email": { "type": "string", "format": "email", "description": "Contact email" },
-        "phone": { "type": "string", "description": "Contact phone number" },
-        "industry": { "type": "string", "enum": ["Creative", "Business", "Platforms"], "description": "Client industry" },
-        "status": { "type": "string", "enum": ["Active", "Lead", "Inactive"], "description": "Current client status" },
-        "notes": { "type": "string", "description": "Important details or interaction notes" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
-        "createdBy": { "type": "string", "description": "UID of the user who created this client" }
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "status": { "type": "string", "enum": ["Active", "Lead", "Inactive"] },
+        "phone": { "type": "string" },
+        "industry": { "type": "string" },
+        "notes": { "type": "string" },
+        "uid": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
       },
       "required": ["name", "company", "email", "status", "createdAt", "createdBy"]
     },
     "Project": {
       "title": "Project",
-      "description": "A project for a client",
+      "description": "A project belonging to a client.",
       "type": "object",
       "properties": {
-        "title": { "type": "string", "description": "Project title" },
-        "type": { "type": "string", "enum": ["Mobile App", "Website", "Business", "Creative", "Platform"], "description": "Project type" },
-        "clientId": { "type": "string", "description": "ID of the associated client" },
-        "clientName": { "type": "string", "description": "Name of the associated client (denormalized)" },
-        "status": { "type": "string", "enum": ["Planning", "In Progress", "Review", "Completed", "On Hold"], "description": "Current project status" },
-        "paymentStatus": { "type": "string", "enum": ["Not Paid", "Deposit Received", "Partially Paid", "Fully Paid"], "description": "Financial status of the project" },
-        "startDate": { "type": "string", "format": "date", "description": "Project start date" },
-        "estimatedEndDate": { "type": "string", "format": "date", "description": "Estimated project end date" },
-        "actualEndDate": { "type": "string", "format": "date", "description": "Actual project end date" },
-        "budget": { "type": "number", "description": "Project budget" },
-        "totalPaid": { "type": "number", "description": "Total amount paid so far" },
-        "liveUrl": { "type": "string", "description": "URL to the live product (website or app)" },
-        "description": { "type": "string", "description": "Project description" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
-        "createdBy": { "type": "string", "description": "UID of the user who created this project" }
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "status": { "type": "string" },
+        "startDate": { "type": "string" },
+        "estimatedEndDate": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
       },
       "required": ["title", "type", "clientId", "status", "createdAt", "createdBy"]
     },
     "Task": {
       "title": "Task",
-      "description": "A task within a project",
+      "description": "A task within a project.",
       "type": "object",
       "properties": {
-        "title": { "type": "string", "description": "Task title" },
-        "projectId": { "type": "string", "description": "ID of the associated project" },
-        "status": { "type": "string", "enum": ["Todo", "In Progress", "Done"], "description": "Current task status" },
-        "dueDate": { "type": "string", "format": "date", "description": "Task due date" },
-        "assignedTo": { "type": "string", "description": "Name of the person assigned" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
-        "createdBy": { "type": "string", "description": "UID of the user who created this task" }
+        "title": { "type": "string" },
+        "projectId": { "type": "string" },
+        "clientId": { "type": "string" },
+        "status": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
       },
-      "required": ["title", "projectId", "status", "createdAt", "createdBy"]
+      "required": ["title", "projectId", "clientId", "status", "createdAt", "createdBy"]
     },
-    "Call": {
-      "title": "Call",
-      "description": "Video call signaling data for WebRTC",
+    "Lead": {
+      "title": "Lead",
+      "description": "A business lead for a client.",
       "type": "object",
       "properties": {
-        "offer": { "type": "object", "description": "WebRTC offer SDP" },
-        "answer": { "type": "object", "description": "WebRTC answer SDP" },
-        "clientId": { "type": "string", "description": "ID of the client associated with the call" },
-        "status": { "type": "string", "enum": ["pending", "active", "ended"], "description": "Current call status" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
-        "createdBy": { "type": "string", "description": "UID of the user who created this call" }
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "source": { "type": "string" },
+        "status": { "type": "string" },
+        "clientId": { "type": "string" },
+        "type": { "type": "string" },
+        "pricePaid": { "type": "number" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["status", "createdAt", "createdBy"]
+      "required": ["name", "clientId", "status", "createdAt"]
     },
-    "Contract": {
-      "title": "Contract",
-      "description": "Legal agreement with a client",
+    "Campaign": {
+      "title": "Campaign",
+      "description": "An outreach campaign for a client.",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "clientId": { "type": "string" },
-        "status": { "type": "string", "enum": ["Draft", "Sent", "Signed", "Expired"] },
-        "content": { "type": "string", "description": "The full text of the contract" },
-        "fileUrl": { "type": "string", "description": "Optional URL to a PDF version" },
-        "initials": { "type": "string", "description": "Client's initials" },
-        "signature": { "type": "string", "description": "Client's full name signature" },
-        "dateSigned": { "type": "string", "format": "date", "description": "Date when the client signed" },
-        "signedAt": { "type": "string", "format": "date-time", "description": "Timestamp of signing" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "type": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string" },
+        "scheduledAt": { "type": "string" },
+        "recipientCount": { "type": "number" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["title", "clientId", "status", "createdAt"]
+      "required": ["title", "clientId", "type", "content", "status", "createdAt"]
     },
-    "ContractTemplate": {
-      "title": "Contract Template",
-      "description": "A reusable contract template",
+    "ClientCustomer": {
+      "title": "Client Customer",
+      "description": "A customer belonging to one of Allie's clients.",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "content": { "type": "string", "description": "The template text with placeholders" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "company": { "type": "string" },
+        "clientId": { "type": "string" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["title", "content", "createdAt"]
+      "required": ["name", "clientId", "createdAt"]
+    },
+    "ClientPayment": {
+      "title": "Client Payment",
+      "description": "A payment made by a customer to one of Allie's clients.",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "clientId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["amount", "clientId", "projectId", "customerId", "status", "createdAt"]
     },
     "Payment": {
       "title": "Payment",
-      "description": "Financial transaction record",
+      "description": "A payment made to Ambix Allie by a client.",
       "type": "object",
       "properties": {
-        "amount": { "type": "number", "description": "Amount paid in this transaction" },
-        "clientId": { "type": "string", "description": "ID of the client" },
-        "projectId": { "type": "string", "description": "ID of the associated project" },
-        "projectTitle": { "type": "string", "description": "Title of the associated project (denormalized)" },
-        "status": { "type": "string", "enum": ["Pending", "Paid", "Overdue", "Cancelled"], "description": "Transaction status" },
-        "type": { "type": "string", "enum": ["Deposit", "Installment", "Final Payment", "Other"], "description": "Type of payment" },
-        "date": { "type": "string", "format": "date", "description": "Date of payment" },
-        "description": { "type": "string", "description": "Payment description" },
-        "notes": { "type": "string", "description": "Internal or client-facing notes about the payment" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+        "amount": { "type": "number" },
+        "clientId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "status": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
       },
       "required": ["amount", "clientId", "projectId", "status", "date", "createdAt"]
-    },
-    "Vital": {
-      "title": "Vital",
-      "description": "Essential technical information for a project (API keys, logins, etc.)",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string", "description": "Name of the vital info (e.g. Stripe API Key)" },
-        "value": { "type": "string", "description": "The actual value of the vital info" },
-        "clientId": { "type": "string", "description": "ID of the associated client" },
-        "category": { "type": "string", "enum": ["Login", "API Key", "Environment Variable", "Link", "Other"] },
-        "instructions": { "type": "string", "description": "Guidance on how to find this information" },
-        "status": { "type": "string", "enum": ["Pending", "Provided"], "description": "Whether the info has been provided by the client" },
-        "isRequestedByAdmin": { "type": "boolean", "description": "Whether this info was specifically requested by an admin" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["title", "clientId", "status", "createdAt"]
-    },
-    "ScheduledSession": {
-      "title": "Scheduled Session",
-      "description": "A scheduled live video session",
-      "type": "object",
-      "properties": {
-        "clientId": { "type": "string", "description": "ID of the client" },
-        "clientName": { "type": "string", "description": "Name of the client" },
-        "title": { "type": "string", "description": "Session title" },
-        "startTime": { "type": "string", "format": "date-time", "description": "Scheduled start time" },
-        "duration": { "type": "number", "description": "Duration in minutes" },
-        "status": { "type": "string", "enum": ["Requested", "Accepted", "Declined", "Active", "Completed", "Cancelled"], "description": "Current status" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
-        "createdBy": { "type": "string", "description": "UID of the user who created this session" }
-      },
-      "required": ["clientId", "title", "startTime", "status", "createdAt", "createdBy"]
-    },
-    "Notification": {
-      "title": "Notification",
-      "description": "A notification for a user",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string", "description": "UID of the user to receive the notification" },
-        "title": { "type": "string", "description": "Notification title" },
-        "message": { "type": "string", "description": "Notification message" },
-        "type": { "type": "string", "enum": ["message", "session", "contract", "payment"], "description": "Type of notification" },
-        "link": { "type": "string", "description": "Optional link to navigate to" },
-        "read": { "type": "boolean", "description": "Whether the notification has been read" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
-      },
-      "required": ["userId", "title", "message", "type", "read", "createdAt"]
-    },
-    "Message": {
-      "title": "Message",
-      "description": "A message between client and admin",
-      "type": "object",
-      "properties": {
-        "text": { "type": "string", "description": "Message content" },
-        "senderId": { "type": "string", "description": "UID of the sender" },
-        "senderName": { "type": "string", "description": "Name of the sender" },
-        "clientId": { "type": "string", "description": "ID of the associated client/conversation" },
-        "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent" },
-        "read": { "type": "boolean", "description": "Whether the message has been read" }
-      },
-      "required": ["text", "senderId", "clientId", "timestamp"]
-    },
-    "CallMessage": {
-      "title": "Call Message",
-      "description": "A message sent during a specific video call session",
-      "type": "object",
-      "properties": {
-        "text": { "type": "string" },
-        "senderId": { "type": "string" },
-        "senderName": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["text", "senderId", "senderName", "createdAt"]
-    },
-    "CallLink": {
-      "title": "Call Link",
-      "description": "A link shared during a specific video call session",
-      "type": "object",
-      "properties": {
-        "url": { "type": "string" },
-        "title": { "type": "string" },
-        "senderId": { "type": "string" },
-        "senderName": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["url", "senderId", "senderName", "createdAt"]
     }
   },
   "firestore": {
-    "/clients/{clientId}": { "schema": "Client", "description": "Collection of clients" },
-    "/projects/{projectId}": { "schema": "Project", "description": "Collection of projects" },
-    "/tasks/{taskId}": { "schema": "Task", "description": "Collection of tasks" },
-    "/calls/{callId}": { "schema": "Call", "description": "Collection of video calls" },
-    "/contracts/{contractId}": { "schema": "Contract", "description": "Collection of contracts" },
-    "/payments/{paymentId}": { "schema": "Payment", "description": "Collection of payments" },
-    "/vitals/{vitalId}": { "schema": "Vital", "description": "Collection of Vitally important technical info" },
-    "/scheduledSessions/{sessionId}": { "schema": "ScheduledSession", "description": "Collection of scheduled video sessions" },
-    "/messages/{messageId}": { "schema": "Message", "description": "Collection of chat messages" },
-    "/notifications/{notificationId}": { "schema": "Notification", "description": "Collection of user notifications" },
-    "/contractTemplates/{templateId}": { "schema": "ContractTemplate", "description": "Collection of contract templates" },
-    "/calls/{callId}/messages/{messageId}": { "schema": "CallMessage", "description": "Messages sent during a call" },
-    "/calls/{callId}/links/{linkId}": { "schema": "CallLink", "description": "Links shared during a call" }
+    "/clients": { "schema": "Client", "description": "Business clients list" },
+    "/projects": { "schema": "Project", "description": "Project details" },
+    "/tasks": { "schema": "Task", "description": "Project tasks" },
+    "/leads": { "schema": "Lead", "description": "Client outreach leads" },
+    "/campaigns": { "schema": "Campaign", "description": "Outreach campaigns" },
+    "/clientCustomers": { "schema": "ClientCustomer", "description": "Customers of the client" },
+    "/clientPayments": { "schema": "ClientPayment", "description": "Internal revenue for clients" },
+    "/payments": { "schema": "Payment", "description": "Revenue for Ambix Allie" }
   }
 }

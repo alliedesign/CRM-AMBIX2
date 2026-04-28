@@ -2,57 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // ===============================================================
-    // Assumed Data Model
+    // DEFAULT DENY CATCH-ALL
     // ===============================================================
-    //
-    // Collection: clients
-    // Fields:
-    //   - name: string (required)
-    //   - contactPerson: string (optional)
-    //   - company: string (required)
-    //   - email: string (required, email format)
-    //   - phone: string (optional)
-    //   - industry: string (optional, enum: Creative, Business, Platforms)
-    //   - status: string (required, enum: Active, Lead, Inactive)
-    //   - notes: string (optional)
-    //   - createdAt: timestamp/string (required)
-    //   - createdBy: string (required, UID)
-    //
-    // Collection: projects
-    // Fields:
-    //   - title: string (required)
-    //   - type: string (required, enum: Mobile App, Website, Business, Creative, Platform)
-    //   - clientId: string (required)
-    //   - clientName: string (optional)
-    //   - status: string (required, enum: Planning, In Progress, Review, Completed, On Hold)
-    //   - startDate: string (optional, date format)
-    //   - estimatedEndDate: string (optional, date format)
-    //   - actualEndDate: string (optional, date format)
-    //   - budget: number (optional)
-    //   - description: string (optional)
-    //   - createdAt: timestamp/string (required)
-    //   - createdBy: string (required, UID)
-    //
-    // Collection: tasks
-    // Fields:
-    //   - title: string (required)
-    //   - projectId: string (required)
-    //   - status: string (required, enum: Todo, In Progress, Done)
-    //   - dueDate: string (optional)
-    //   - assignedTo: string (optional)
-    //   - createdAt: timestamp/string (required)
-    //   - createdBy: string (required, UID)
-    //
-    // Collection: calls
-    // Fields:
-    //   - offer: object (optional)
-    //   - answer: object (optional)
-    //   - clientId: string (optional)
-    //   - status: string (required, enum: pending, active, ended)
-    //   - createdAt: timestamp/string (required)
-    //   - createdBy: string (required, UID)
-    //
-    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
     // ===============================================================
     // Helper Functions
@@ -65,206 +19,209 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isDocOwner() {
-      return isAuthenticated() && request.auth.uid == resource.data.createdBy;
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function uidUnchanged() {
-      return !('createdBy' in request.resource.data) ||
-        request.resource.data.createdBy == request.auth.uid;
+    function incoming() {
+      return request.resource.data;
     }
 
-    function uidNotModified() {
-      return !('createdBy' in request.resource.data) ||
-        request.resource.data.createdBy == resource.data.createdBy;
-    }
-
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
-    }
-
-    function isValidEmail(email) {
-      return email is string &&
-        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    function isValidString(field, maxLen) {
-      return request.resource.data[field] is string &&
-        request.resource.data[field].size() > 0 &&
-        request.resource.data[field].size() <= maxLen;
-    }
-
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
-    function isValidClient(data) {
-      return hasRequiredFields(['name', 'company', 'email', 'status', 'createdAt', 'createdBy']) &&
-        data.name is string && data.name.size() < 100 &&
-        data.company is string && data.company.size() < 100 &&
-        isValidEmail(data.email) &&
-        data.status in ['Active', 'Lead', 'Inactive'] &&
-        (!('industry' in data) || data.industry in ['Creative', 'Business', 'Platforms']);
-    }
-
-    function isValidProject(data) {
-      return hasRequiredFields(['title', 'type', 'clientId', 'status', 'createdAt', 'createdBy']) &&
-        data.title is string && data.title.size() < 200 &&
-        data.type in ['Mobile App', 'Website', 'Business', 'Creative', 'Platform'] &&
-        data.status in ['Planning', 'In Progress', 'Review', 'Completed', 'On Hold'] &&
-        (!('paymentStatus' in data) || data.paymentStatus in ['Not Paid', 'Deposit Received', 'Partially Paid', 'Fully Paid']) &&
-        (!('totalPaid' in data) || data.totalPaid is number) &&
-        (!('budget' in data) || data.budget is number);
-    }
-
-    function isValidPayment(data) {
-      return hasRequiredFields(['amount', 'clientId', 'projectId', 'status', 'date', 'createdAt']) &&
-        data.amount is number &&
-        data.clientId is string &&
-        data.projectId is string &&
-        data.status in ['Pending', 'Paid', 'Overdue', 'Cancelled'] &&
-        (!('type' in data) || data.type in ['Deposit', 'Installment', 'Final Payment', 'Other']) &&
-        data.date is string &&
-        (data.createdAt is timestamp || data.createdAt is string);
-    }
-
-    function isValidNotification(data) {
-      return hasRequiredFields(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&
-        data.userId is string &&
-        data.title is string &&
-        data.message is string &&
-        data.type in ['message', 'session', 'contract', 'payment'] &&
-        data.read is bool &&
-        (data.createdAt is timestamp || data.createdAt is string);
-    }
-
-    function isValidTask(data) {
-      return hasRequiredFields(['title', 'projectId', 'status', 'createdAt', 'createdBy']) &&
-        data.title is string && data.title.size() < 200 &&
-        data.status in ['Todo', 'In Progress', 'Done'];
-    }
-
-    function isValidVital(data) {
-      return hasRequiredFields(['title', 'clientId', 'status', 'createdAt']) &&
-        data.title is string && data.title.size() < 200 &&
-        data.clientId is string &&
-        data.status in ['Pending', 'Provided'] &&
-        (!('category' in data) || data.category in ['Login', 'API Key', 'Environment Variable', 'Link', 'Other']);
-    }
-
-    function isSuperAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email in ["allie.pakele@gmail.com", "allie@vibesandvolumes.com"]
-      );
+    function existing() {
+      return resource.data;
     }
 
     function isAdmin() {
-      return isSuperAdmin() || (
-        isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      return isAuthenticated() && request.auth.token.email_verified == true && (
+        request.auth.token.email in ["allie.pakele@gmail.com", "allie@vibesandvolumes.com"] ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
     function isClient(clientId) {
       return isAuthenticated() && 
-        clientId != null &&
+        request.auth.token.email_verified == true &&
+        isValidId(clientId) &&
         exists(/databases/$(database)/documents/clients/$(clientId)) &&
         (get(/databases/$(database)/documents/clients/$(clientId)).data.uid == request.auth.uid || 
          get(/databases/$(database)/documents/clients/$(clientId)).data.email == request.auth.token.email);
     }
 
     // ===============================================================
-    // Rules
+    // Validation Blueprints (Phase 1)
     // ===============================================================
+    function isValidClient(data) {
+      return data.keys().hasAll(['name', 'company', 'email', 'status', 'createdAt', 'createdBy']) &&
+        data.keys().size() >= 6 && data.keys().size() <= 12 &&
+        data.name is string && data.name.size() <= 100 &&
+        data.company is string && data.company.size() <= 100 &&
+        data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+        data.status in ['Active', 'Lead', 'Inactive'];
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['title', 'type', 'clientId', 'status', 'createdAt', 'createdBy']) &&
+        data.keys().size() >= 6 && data.keys().size() <= 15 &&
+        data.title is string && data.title.size() <= 200 &&
+        data.clientId is string &&
+        data.type in ['Mobile App', 'Website', 'Business', 'Creative', 'Platform'] &&
+        data.status in ['Planning', 'In Progress', 'Review', 'Completed', 'On Hold', 'Declined'];
+    }
+
+    function isValidLead(data) {
+      return data.keys().hasAll(['name', 'clientId', 'status', 'createdAt']) &&
+        data.keys().size() >= 4 && data.keys().size() <= 15 &&
+        data.name is string && data.name.size() <= 100 &&
+        data.clientId is string &&
+        data.status in ['New', 'Contacted', 'Interested', 'Converted', 'Lost'];
+    }
+
+    function isValidCampaign(data) {
+      return data.keys().hasAll(['title', 'clientId', 'type', 'content', 'status', 'createdAt']) &&
+        data.keys().size() >= 6 && data.keys().size() <= 15 &&
+        data.title is string && data.title.size() <= 200 &&
+        data.clientId is string &&
+        data.type in ['Email', 'SMS'] &&
+        data.status in ['Draft', 'Scheduled', 'Sending', 'Sent', 'Failed'];
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'projectId', 'clientId', 'status', 'createdAt', 'createdBy']) &&
+        data.keys().size() >= 6 && data.keys().size() <= 15 &&
+        data.title is string && data.title.size() <= 200 &&
+        data.projectId is string &&
+        data.clientId is string &&
+        data.status in ['Todo', 'In Progress', 'Done', 'Declined'];
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['name', 'clientId', 'createdAt']) &&
+        data.keys().size() >= 3 && data.keys().size() <= 10 &&
+        data.name is string && data.name.size() <= 100 &&
+        data.clientId is string;
+    }
+
+    function isValidClientPayment(data) {
+      return data.keys().hasAll(['amount', 'clientId', 'projectId', 'customerId', 'status', 'createdAt']) &&
+        data.keys().size() >= 6 && data.keys().size() <= 12 &&
+        data.amount is number && data.amount >= 0 &&
+        data.clientId is string &&
+        data.projectId is string &&
+        data.customerId is string &&
+        data.status in ['Paid', 'Refunded', 'Failed'];
+    }
+
+    // ===============================================================
+    // Collection Match Blocks
+    // ===============================================================
+
     match /users/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if (isAdmin() || (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'phone'])));
     }
 
     match /clients/{clientId} {
-      allow read: if isAuthenticated() && (isAdmin() || resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email);
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.email == request.auth.token.email));
-      allow delete: if isAdmin();
+      allow read: if isAdmin() || isClient(clientId);
+      allow create: if isAdmin() && isValidClient(incoming());
+      allow update: if (isAdmin() && isValidClient(incoming())) || 
+                       (isClient(clientId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes']));
     }
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAdmin() && isValidProject(request.resource.data);
-      allow update: if isAdmin() && isValidProject(request.resource.data);
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if isAdmin() && isValidProject(incoming());
+      allow update: if isAdmin() && isValidProject(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /leads/{leadId} {
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if (isAdmin() || isClient(incoming().clientId)) && isValidLead(incoming());
+      allow update: if (isAdmin() || isClient(existing().clientId)) && isValidLead(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /campaigns/{campId} {
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if (isAdmin() || isClient(incoming().clientId)) && isValidCampaign(incoming());
+      allow update: if (isAdmin() || isClient(existing().clientId)) && isValidCampaign(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /clientCustomers/{custId} {
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if (isAdmin() || isClient(incoming().clientId)) && isValidCustomer(incoming());
+      allow update: if (isAdmin() || isClient(existing().clientId)) && isValidCustomer(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /clientPayments/{payId} {
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if (isAdmin() || isClient(incoming().clientId)) && isValidClientPayment(incoming());
+      allow update: if (isAdmin() || isClient(existing().clientId)) && isValidClientPayment(incoming());
       allow delete: if isAdmin();
     }
 
     match /tasks/{taskId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAuthenticated() && (isAdmin() || isClient(request.resource.data.clientId)) && isValidTask(request.resource.data);
-      allow update: if isAdmin() && isValidTask(request.resource.data);
-      allow delete: if isAdmin();
-    }
-
-    match /contracts/{contractId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'initials', 'signature', 'dateSigned', 'signedAt']));
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if (isAdmin() || isClient(incoming().clientId)) && isValidTask(incoming());
+      allow update: if (isAdmin() || isClient(existing().clientId)) && isValidTask(incoming());
       allow delete: if isAdmin();
     }
 
     match /payments/{paymentId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAdmin() && isValidPayment(request.resource.data);
-      allow update: if isAdmin() && isValidPayment(request.resource.data);
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /contracts/{contractId} {
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isClient(existing().clientId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'initials', 'signature', 'dateSigned', 'signedAt']));
       allow delete: if isAdmin();
     }
 
     match /vitals/{vitalId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAuthenticated() && isValidVital(request.resource.data);
-      allow update: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId)) && isValidVital(request.resource.data);
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if isAdmin() || isClient(incoming().clientId);
+      allow update: if isAdmin() || isClient(existing().clientId);
       allow delete: if isAdmin();
     }
 
-    match /calls/{callId} {
-      allow read, write: if isAuthenticated();
-      match /callerCandidates/{candidateId} {
-        allow read, write: if isAuthenticated();
-      }
-      match /calleeCandidates/{candidateId} {
-        allow read, write: if isAuthenticated();
-      }
-      match /messages/{messageId} {
-        allow read, write: if isAuthenticated();
-      }
-      match /links/{linkId} {
-        allow read, write: if isAuthenticated();
-      }
-    }
-
     match /scheduledSessions/{sessionId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow read: if isAdmin() || isClient(resource.data.clientId) || resource.data.clientId == null;
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow update: if isAdmin() || isClient(resource.data.clientId);
       allow delete: if isAdmin();
     }
 
     match /messages/{messageId} {
-      allow read: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
-      allow create: if isAuthenticated() && (isAdmin() || isClient(request.resource.data.clientId));
-      allow update: if isAuthenticated() && (isAdmin() || isClient(resource.data.clientId));
+      allow read: if isAdmin() || isClient(resource.data.clientId);
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isClient(resource.data.clientId);
       allow delete: if isAdmin();
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isSuperAdmin() || (isAdmin() && resource.data.userId == 'ADMIN_GROUP'));
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isOwner(resource.data.userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
     }
-
-    match /contractTemplates/{templateId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
+    
     match /test/connection {
       allow read: if true;
     }
