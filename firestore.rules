@@ -112,6 +112,22 @@ service cloud.firestore {
         data.status in ['Paid', 'Refunded', 'Failed'];
     }
 
+    function isValidContractTemplate(data) {
+      return data.keys().hasAll(['title', 'content', 'createdAt']) &&
+        data.keys().size() >= 3 && data.keys().size() <= 6 &&
+        data.title is string && data.title.size() <= 200 &&
+        data.content is string && data.content.size() <= 50000;
+    }
+
+    function isValidCall(data) {
+      return data.keys().hasAll(['clientId', 'status', 'createdBy', 'createdAt']) &&
+        data.keys().size() >= 4 && data.keys().size() <= 10 &&
+        data.clientId is string &&
+        data.status in ['pending', 'active', 'completed', 'dismissed'] &&
+        (data.get('clientName', '') is string) &&
+        (data.get('id', '') is string);
+    }
+
     // ===============================================================
     // Collection Match Blocks
     // ===============================================================
@@ -220,6 +236,20 @@ service cloud.firestore {
       allow create: if isAuthenticated();
       allow update: if isAuthenticated() && isOwner(resource.data.userId);
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    match /contractTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidContractTemplate(incoming());
+      allow update: if isAdmin() && isValidContractTemplate(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /calls/{callId} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource == null || resource.data.clientId == null || isClient(resource.data.clientId)));
+      allow create: if isAuthenticated() && isValidCall(incoming());
+      allow update: if isAdmin() || (isAuthenticated() && isClient(existing().clientId));
+      allow delete: if isAdmin();
     }
     
     match /test/connection {

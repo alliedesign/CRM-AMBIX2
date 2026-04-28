@@ -126,6 +126,30 @@
         "createdAt": { "type": "string" }
       },
       "required": ["amount", "clientId", "projectId", "status", "date", "createdAt"]
+    },
+    "ContractTemplate": {
+      "title": "Contract Template",
+      "description": "A template for contracts (e.g., NDA).",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "content", "createdAt"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "A live video call record.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active", "completed", "dismissed"] },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["clientId", "status", "createdBy", "createdAt"]
     }
   },
   "firestore": {
@@ -136,6 +160,8 @@
     "/campaigns": { "schema": "Campaign", "description": "Outreach campaigns" },
     "/clientCustomers": { "schema": "ClientCustomer", "description": "Customers of the client" },
     "/clientPayments": { "schema": "ClientPayment", "description": "Internal revenue for clients" },
-    "/payments": { "schema": "Payment", "description": "Revenue for Ambix Allie" }
+    "/payments": { "schema": "Payment", "description": "Revenue for Ambix Allie" },
+    "/contractTemplates": { "schema": "ContractTemplate", "description": "System-wide contract templates" },
+    "/calls": { "schema": "Call", "description": "Video call signaling" }
   }
 }
