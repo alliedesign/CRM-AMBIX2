@@ -143,6 +143,7 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidClient(incoming());
       allow update: if (isAdmin() && isValidClient(incoming())) || 
                        (isClient(clientId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'industry', 'notes']));
+      allow delete: if isAdmin();
     }
 
     match /projects/{projectId} {

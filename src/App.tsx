@@ -457,7 +457,7 @@ function CRMApp() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        if (ADMIN_EMAILS.includes(currentUser.email || '')) {
+        if (ADMIN_EMAILS.map(e => e.toLowerCase()).includes(currentUser.email?.toLowerCase() || '')) {
           setRole('admin');
         } else {
           setRole('client');
@@ -697,14 +697,21 @@ function CRMApp() {
       const userEmail = user.email?.toLowerCase().trim();
       if (!userEmail) return;
 
-      const clientQuery = query(collection(db, 'clients'), where('email', '==', userEmail));
-      unsubscribes.push(onSnapshot(clientQuery, (snapshot) => {
-        if (!snapshot.empty) {
-          const found = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Client;
+      // To handle existing non-normalized data, we fetch all clients and filter in JS
+      // This is safe for freelancer/agency scale apps (usually < 1000 clients)
+      const clientsRef = collection(db, 'clients');
+      unsubscribes.push(onSnapshot(clientsRef, (snapshot) => {
+        const allClients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
+        const found = allClients.find(c => 
+          c.email?.toLowerCase().trim() === userEmail || 
+          (c.uid === user.uid)
+        );
+
+        if (found) {
           setLinkedClient(found);
           // If client doesn't have a UID yet, link it
           if (!found.uid) {
-            updateDoc(doc(db, 'clients', found.id), { uid: user.uid });
+            updateDoc(doc(db, 'clients', found.id), { uid: user.uid }).catch(console.error);
           }
         } else {
           setLinkedClient(null);
@@ -5877,18 +5884,47 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
 
   if (!client) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center p-8 text-center">
-        <div className="mb-6 rounded-full bg-slate-100 p-6">
-          <Users className="h-12 w-12 text-slate-400" />
-        </div>
-        <h2 className="text-2xl font-bold text-slate-900">Portal Not Linked</h2>
-        <p className="mt-2 max-w-md text-slate-500">
-          Your email ({user.email}) is not linked to a client profile in our system. 
-          Please contact Allie at <a href={`mailto:${ADMIN_EMAILS[0]}`} className="text-blue-600 hover:underline">{ADMIN_EMAILS[0]}</a> to gain access.
-        </p>
-        <Button onClick={logOut} variant="outline" className="mt-8">
-          Sign Out
-        </Button>
+      <div className="flex h-screen flex-col items-center justify-center p-8 text-center bg-slate-50 dark:bg-slate-950">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-md w-full bg-white dark:bg-slate-900 rounded-[2.5rem] p-12 shadow-2xl border border-slate-100 dark:border-slate-800"
+        >
+          <div className="mb-8 flex justify-center">
+            <div className="h-24 w-24 rounded-[2rem] bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center relative overflow-hidden">
+              <Users className="h-10 w-10 text-blue-500" />
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-0 border-2 border-dashed border-blue-200 dark:border-blue-800 rounded-[2rem]"
+              />
+            </div>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-4">Portal Pending</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+            We found your account ({user.email}), but it hasn't been linked to a specific client profile yet.
+          </p>
+          
+          <div className="space-y-4 mb-8 text-left bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
+            <div className="flex items-start space-x-3">
+              <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-[10px] font-bold text-blue-600 mt-0.5">1</div>
+              <p className="text-xs text-slate-600 dark:text-slate-300">Wait for your invitation or profile setup.</p>
+            </div>
+            <div className="flex items-start space-x-3">
+              <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-[10px] font-bold text-blue-600 mt-0.5">2</div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">Contact Allie: <a href={`mailto:${ADMIN_EMAILS[0]}`} className="text-blue-600 dark:text-blue-400 hover:underline">{ADMIN_EMAILS[0]}</a></p>
+            </div>
+          </div>
+
+          <div className="flex flex-col space-y-3">
+            <Button onClick={() => window.location.reload()} className="rounded-2xl h-12 font-bold bg-blue-600 hover:bg-blue-700">
+              Refresh Status
+            </Button>
+            <Button onClick={() => logOut()} variant="ghost" className="rounded-2xl h-12 text-slate-400 hover:text-red-500">
+              Sign Out
+            </Button>
+          </div>
+        </motion.div>
       </div>
     );
   }
