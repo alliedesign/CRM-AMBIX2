@@ -3,15 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where, limit, Timestamp, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, where, limit, Timestamp, getDocs, setDoc } from 'firebase/firestore';
 import { auth, db, signIn, logOut, signUpWithEmail, signInWithEmail, resetPassword, OperationType, handleFirestoreError } from './firebase';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
 import { VideoCall } from './components/VideoCall';
 
-const ADMIN_EMAILS = ['allie.pakele@gmail.com', 'allie@vibesandvolumes.com'];
+const ADMIN_EMAILS = ['allie.pakele@gmail.com'];
 
 const LOGO_LIGHT = "https://www.dropbox.com/scl/fi/5odwkx48d4etw27599sze/ChatGPT-Image-Apr-28-2026-Logo-for-AMBIX-ALLIE-edited.png?rlkey=86btrqkbhlp1axky8xgfri4n0&st=9ym7iv3k&raw=1";
 const LOGO_DARK = "https://www.dropbox.com/scl/fi/h20fwvj0rxbum9hsbglcv/ChatGPT-Image-Apr-28-2026-from-AMBIX-ALLIE-edited.png?rlkey=gyjvlo65c9gx8bsniyzmtcm9i&st=czf4t6ub&raw=1";
@@ -27,7 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell, Moon, Sun, Menu, ChevronDown, Box, Star, ArrowRight, CheckCircle2, HelpCircle, Edit3, ShieldCheck, TrendingUp, XCircle, Play, Share2, Sparkles, Lock as LockIcon, AlertCircle, Settings } from 'lucide-react';
+import { Plus, LogOut, LayoutDashboard, Users, Briefcase, CheckSquare, Trash2, Search, Filter, Mail, Phone, Calendar, DollarSign, Video, FileText, CreditCard, MessageCircle, ExternalLink, Clock, Timer, Send, Bell, Moon, Sun, Menu, ChevronDown, Box, Star, ArrowRight, CheckCircle2, HelpCircle, Edit3, ShieldCheck, TrendingUp, XCircle, Play, Share2, Sparkles, Lock as LockIcon, AlertCircle, Settings, PlusCircle, Activity, UserCheck, Target, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Types
@@ -99,11 +99,16 @@ interface Lead {
   email?: string;
   phone?: string;
   source?: string;
-  status: 'New' | 'Contacted' | 'Interested' | 'Converted' | 'Lost';
+  status: 'New' | 'Purchased' | 'Interested' | 'Converted' | 'Lost' | 'Declined';
   type: 'Lead' | 'Appointment';
   cost?: number;
-  isPaid?: boolean;
-  pricePaid?: number;
+  isPurchased?: boolean;
+  isDeclined?: boolean;
+  price?: number; // Market price for the client to buy
+  purchasedAt?: any;
+  leadCity?: string;
+  leadIndustry?: string;
+  leadDescription?: string;
   notes?: string;
   createdAt: any;
 }
@@ -137,6 +142,7 @@ interface Project {
   budget?: number;
   totalPaid?: number;
   liveUrl?: string;
+  thumbnailUrl?: string;
   description?: string;
   createdAt: any;
   createdBy: string;
@@ -192,6 +198,26 @@ interface Payment {
   createdAt: any;
 }
 
+interface PaymentPlanItem {
+  title: string;
+  amount: number;
+  dueDate?: string;
+}
+
+interface PaymentPlan {
+  id: string;
+  clientId: string;
+  title: string;
+  description?: string;
+  items: PaymentPlanItem[];
+  totalAmount: number;
+  installments: number;
+  frequency: 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
+  status: 'Pending' | 'Approved' | 'Declined' | 'Completed';
+  createdAt: any;
+  updatedAt?: any;
+}
+
 interface Vital {
   id: string;
   title: string;
@@ -225,7 +251,7 @@ interface Notification {
   userId: string;
   title: string;
   message: string;
-  type: 'message' | 'session' | 'contract' | 'payment';
+  type: 'message' | 'session' | 'contract' | 'payment' | 'project' | 'task';
   link?: string;
   actionUrl?: string;
   read: boolean;
@@ -261,6 +287,7 @@ function CRMApp() {
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [paymentPlans, setPaymentPlans] = useState<PaymentPlan[]>([]);
   const [contractTemplates, setContractTemplates] = useState<ContractTemplate[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -459,11 +486,20 @@ function CRMApp() {
 
   // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         if (ADMIN_EMAILS.map(e => e.toLowerCase()).includes(currentUser.email?.toLowerCase() || '')) {
           setRole('admin');
+          // Bootstrap admin record in DB
+          try {
+            await setDoc(doc(db, 'admins', currentUser.uid), {
+              email: currentUser.email,
+              updatedAt: serverTimestamp()
+            }, { merge: true });
+          } catch (error) {
+            console.error('Error bootstrapping admin record:', error);
+          }
         } else {
           setRole('client');
         }
@@ -687,6 +723,11 @@ function CRMApp() {
         handleFirestoreError(error, OperationType.LIST, 'notifications');
       }));
 
+      const paymentPlansQuery = query(collection(db, 'paymentPlans'), orderBy('createdAt', 'desc'));
+      unsubscribes.push(onSnapshot(paymentPlansQuery, (snapshot) => {
+        setPaymentPlans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentPlan)));
+      }, (error) => handleFirestoreError(error, OperationType.LIST, 'paymentPlans')));
+
       const templatesQuery = query(collection(db, 'contractTemplates'), orderBy('createdAt', 'desc'));
       unsubscribes.push(onSnapshot(templatesQuery, (snapshot) => {
         setContractTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ContractTemplate)));
@@ -886,6 +927,11 @@ Client: ____________________`,
       handleFirestoreError(error, OperationType.LIST, 'notifications');
     });
 
+    const paymentPlansQuery = query(collection(db, 'paymentPlans'), where('clientId', '==', linkedClient.id), orderBy('createdAt', 'desc'));
+    const unsubscribePaymentPlans = onSnapshot(paymentPlansQuery, (snapshot) => {
+      setPaymentPlans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentPlan)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'paymentPlans'));
+
     const sessionsQuery = query(collection(db, 'scheduledSessions'), where('clientId', '==', linkedClient.id), orderBy('startTime', 'asc'));
     const unsubscribeSessions = onSnapshot(sessionsQuery, (snapshot) => {
       setScheduledSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ScheduledSession)));
@@ -902,6 +948,7 @@ Client: ____________________`,
       unsubscribeVitals();
       unsubscribeMessages();
       unsubscribeNotifications();
+      unsubscribePaymentPlans();
       unsubscribeSessions();
       unsubscribeLeads();
       unsubscribeCampaigns();
@@ -940,6 +987,7 @@ Client: ____________________`,
           clientPayments={clientPayments}
           messages={messages}
           notifications={notifications}
+          paymentPlans={paymentPlans}
           sendNotification={sendNotification}
           onStartCall={setActiveCall}
           incomingCall={incomingCall}
@@ -1201,7 +1249,7 @@ Client: ____________________`,
           {activeTab === 'tasks' && <TasksView tasks={tasks} projects={projects} clients={clients} user={user} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'leads' && <LeadsView leads={leads} clients={clients} user={user} />}
           {activeTab === 'campaigns' && <CampaignsView campaigns={campaigns} clients={clients} user={user} />}
-          {activeTab === 'payments' && <PaymentsAnalyticsView payments={payments} clients={clients} projects={projects} />}
+          {activeTab === 'payments' && <PaymentsAnalyticsView payments={payments} clients={clients} projects={projects} paymentPlans={paymentPlans} />}
           {activeTab === 'sessions' && <SessionsView sessions={scheduledSessions} clients={clients} user={user} role={role} onStartCall={setActiveCall} sendNotification={sendNotification} />}
           {activeTab === 'messages' && <MessagesView messages={messages} clients={clients} user={user} />}
           {activeTab === 'templates' && <ContractTemplatesView templates={contractTemplates} clients={clients} user={user} sendNotification={sendNotification} />}
@@ -1232,6 +1280,35 @@ function ContractTemplatesView({ templates, clients, user, sendNotification }: {
   const [sendingTemplate, setSendingTemplate] = useState<ContractTemplate | null>(null);
   const [form, setForm] = useState({ title: '', content: '' });
   const [sendForm, setSendForm] = useState({ clientId: '', content: '' });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === templates.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(templates.map(t => t.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    
+    try {
+      const batch = Array.from(selectedIds).map(id => deleteDoc(doc(db, 'contractTemplates', id)));
+      await Promise.all(batch);
+      setSelectedIds(new Set());
+      toast.success(`${selectedIds.size} templates deleted`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'contractTemplates');
+    }
+  };
 
   const handleSave = async () => {
     if (!form.title || !form.content) return;
@@ -1285,11 +1362,11 @@ function ContractTemplatesView({ templates, clients, user, sendNotification }: {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this template?')) return;
     try {
       await deleteDoc(doc(db, 'contractTemplates', id));
+      toast.success('Template deleted');
     } catch (error) {
-      console.error('Error deleting template:', error);
+      handleFirestoreError(error, OperationType.DELETE, 'contractTemplates');
     }
   };
 
@@ -1297,29 +1374,58 @@ function ContractTemplatesView({ templates, clients, user, sendNotification }: {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white transition-colors">Contract Templates</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm transition-colors">Manage reusable legal documents and send them to clients.</p>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight uppercase italic">{templates.length} Templates</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] italic">Create and manage your reusable document templates.</p>
         </div>
-        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 transition-colors">
-          <Plus className="mr-2 h-4 w-4" /> Create Template
-        </Button>
+        <div className="flex gap-4">
+          {selectedIds.size > 0 && (
+            <Button onClick={handleBulkDelete} variant="outline" className="border-red-200 text-red-500 hover:bg-red-50 rounded-2xl h-11 px-6 font-black uppercase text-[10px] tracking-widest shadow-lg">
+              <Trash2 className="mr-2 h-4 w-4" /> Delete ({selectedIds.size})
+            </Button>
+          )}
+          <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white rounded-2xl h-11 px-8 font-black uppercase text-[10px] tracking-widest shadow-xl">
+            <Plus className="mr-2 h-4 w-4" /> Create Template
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="flex items-center space-x-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl">
+        <button 
+          onClick={toggleSelectAll}
+          className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+        >
+          <div className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${selectedIds.size === templates.length && templates.length > 0 ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-600'}`}>
+            {selectedIds.size === templates.length && templates.length > 0 && <CheckSquare className="h-3 w-3 text-white" />}
+          </div>
+          <span>Select All Templates</span>
+        </button>
+      </div>
+
+      <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
         {templates.map(template => (
-          <Card key={template.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col transition-colors">
-            <CardHeader>
-              <CardTitle className="text-lg font-bold text-slate-900 dark:text-white transition-colors">{template.title}</CardTitle>
-              <CardDescription className="line-clamp-3 text-xs text-slate-500 dark:text-slate-400">
-                {template.content}
-              </CardDescription>
+          <Card key={template.id} className={`group border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex flex-col rounded-[2.5rem] transition-all duration-500 hover:shadow-2xl ${selectedIds.has(template.id) ? 'ring-2 ring-blue-500' : ''}`}>
+            <CardHeader className="p-8 pb-4 relative">
+              <button 
+                onClick={() => toggleSelect(template.id)}
+                className="absolute top-6 right-6 h-6 w-6 rounded border-2 flex items-center justify-center transition-all bg-white/80 dark:bg-slate-900/80 backdrop-blur z-10"
+              >
+                <div className={`h-full w-full rounded flex items-center justify-center ${selectedIds.has(template.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-600'}`}>
+                  {selectedIds.has(template.id) && <CheckSquare className="h-4 w-4 text-white" />}
+                </div>
+              </button>
+              <CardTitle className="text-xl font-black text-slate-900 dark:text-white transition-colors uppercase italic">{template.title}</CardTitle>
+              <div className="mt-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800">
+                <p className="line-clamp-3 text-xs text-slate-500 dark:text-slate-400 font-medium italic leading-relaxed">
+                  {template.content}
+                </p>
+              </div>
             </CardHeader>
             <CardContent className="flex-1" />
-            <div className="p-6 pt-0 flex gap-2">
+            <div className="p-8 pt-0 flex gap-2 border-t border-slate-50 dark:border-slate-800 mt-4 pt-6">
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="flex-1 dark:border-slate-800 dark:hover:bg-slate-800 dark:text-slate-300 transition-colors"
+                className="flex-1 rounded-2xl h-11 font-black uppercase text-[10px] tracking-widest border-slate-100 dark:border-slate-800 transition-colors"
                 onClick={() => {
                   setEditingTemplate(template);
                   setForm({ title: template.title, content: template.content });
@@ -1329,21 +1435,21 @@ function ContractTemplatesView({ templates, clients, user, sendNotification }: {
                 Edit
               </Button>
               <Button 
-                variant="outline"
+                variant="ghost"
                 size="icon"
-                className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 dark:border-slate-800"
+                className="h-11 w-11 rounded-2xl text-slate-200 hover:text-red-500 hover:bg-red-50 transition-colors"
                 onClick={() => handleDelete(template.id)}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
               <Button 
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white"
+                className="flex-[1.5] bg-blue-600 hover:bg-blue-500 text-white rounded-2xl h-11 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-blue-100 dark:shadow-none"
                 onClick={() => {
                   setSendingTemplate(template);
                   setSendForm({ clientId: '', content: template.content });
                 }}
               >
-                Send
+                Send to Client
               </Button>
             </div>
           </Card>
@@ -1862,18 +1968,33 @@ function NotificationBell({ notifications, setActiveTab, onStartCall, onDismissC
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAsRead = async (id: string) => {
-    await updateDoc(doc(db, 'notifications', id), { read: true });
+    try {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
+    } catch (error) {
+       console.error('Error marking as read:', error);
+    }
   };
 
   const markAllAsRead = async () => {
     const unread = notifications.filter(n => !n.read);
-    const batch = unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
-    await Promise.all(batch);
+    try {
+      const batch = unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
+      await Promise.all(batch);
+      toast.success('Caught up on all notifications');
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
   };
 
   const deleteAll = async () => {
-    const batch = notifications.map(n => deleteDoc(doc(db, 'notifications', n.id)));
-    await Promise.all(batch);
+    if (!window.confirm('Wipe all notifications?')) return;
+    try {
+      const batch = notifications.map(n => deleteDoc(doc(db, 'notifications', n.id)));
+      await Promise.all(batch);
+      toast.success('Notifications purged');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'notifications');
+    }
   };
 
   const handleNotificationClick = (n: Notification) => {
@@ -1884,6 +2005,10 @@ function NotificationBell({ notifications, setActiveTab, onStartCall, onDismissC
       setActiveTab('sessions');
     } else if (n.type === 'message') {
       setActiveTab('messages');
+    } else if (n.type === 'project') {
+      setActiveTab('projects');
+    } else if (n.type === 'task') {
+      setActiveTab('tasks');
     }
 
     if (n.actionUrl?.includes('callId=') && onStartCall) {
@@ -1961,18 +2086,41 @@ function NotificationBell({ notifications, setActiveTab, onStartCall, onDismissC
 
 function NotificationsView({ notifications, setActiveTab, onStartCall }: { notifications: Notification[], setActiveTab?: (tab: string) => void, onStartCall?: (data: any) => void }) {
   const markAsRead = async (id: string) => {
-    await updateDoc(doc(db, 'notifications', id), { read: true });
+    try {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
+    } catch (error) {
+      console.error('Error marking as read:', error);
+    }
+  };
+
+  const deleteNotification = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'notifications', id));
+      toast.success('Notification removed');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'notifications');
+    }
   };
 
   const markAllAsRead = async () => {
     const unread = notifications.filter(n => !n.read);
-    const batch = unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
-    await Promise.all(batch);
+    try {
+      const batch = unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
+      await Promise.all(batch);
+      toast.success('All notifications marked as read');
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
   };
 
   const deleteAll = async () => {
-    const batch = notifications.map(n => deleteDoc(doc(db, 'notifications', n.id)));
-    await Promise.all(batch);
+    try {
+      const batch = notifications.map(n => deleteDoc(doc(db, 'notifications', n.id)));
+      await Promise.all(batch);
+      toast.success('Notifications cleared');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'notifications');
+    }
   };
 
   const handleNotificationClick = (n: Notification) => {
@@ -1983,6 +2131,10 @@ function NotificationsView({ notifications, setActiveTab, onStartCall }: { notif
       setActiveTab('sessions');
     } else if (n.type === 'message') {
       setActiveTab('messages');
+    } else if (n.type === 'project') {
+      setActiveTab('projects');
+    } else if (n.type === 'task') {
+      setActiveTab('tasks');
     }
 
     if (n.actionUrl?.includes('callId=') && onStartCall) {
@@ -2000,60 +2152,85 @@ function NotificationsView({ notifications, setActiveTab, onStartCall }: { notif
       exit={{ opacity: 0, y: -10 }}
       className="space-y-8 max-w-4xl mx-auto"
     >
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 dark:border-slate-800 pb-10">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Notifications</h1>
-          <p className="text-slate-500 dark:text-slate-400">Stay updated with your latest activity.</p>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white uppercase italic">Notifications</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] italic mt-1">Keep track of your latest activities and messages.</p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           {notifications.length > 0 && (
             <>
-              <Button variant="outline" size="sm" onClick={markAllAsRead} className="dark:border-slate-800 dark:hover:bg-slate-800 dark:text-slate-300">
-                Mark all read
-              </Button>
-              <Button variant="outline" size="sm" onClick={deleteAll} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30">
-                Clear all
+              {notifications.some(n => !n.read) && (
+                <Button variant="outline" size="sm" onClick={markAllAsRead} className="h-11 rounded-2xl px-6 font-black uppercase text-[10px] tracking-widest border-slate-100 dark:border-slate-800 shadow-sm">
+                  Mark All Read
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={deleteAll} className="h-11 rounded-2xl px-6 font-black uppercase text-[10px] tracking-widest text-red-500 hover:bg-red-50 border-red-100 shadow-sm">
+                Delete All
               </Button>
             </>
           )}
         </div>
       </header>
 
-      <div className="grid gap-4">
+      <div className="grid gap-6">
         {notifications.length === 0 ? (
-          <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed border-2 dark:border-slate-800 dark:bg-slate-900/50 transition-colors">
-            <div className="mb-4 rounded-full bg-slate-50 dark:bg-slate-800 p-4">
-              <Bell className="h-8 w-8 text-slate-300 dark:text-slate-400" />
+          <Card className="flex flex-col items-center justify-center p-20 text-center border-dashed border-2 rounded-[3rem] dark:border-slate-800 dark:bg-slate-900/50 transition-colors">
+            <div className="mb-6 rounded-full bg-slate-50 dark:bg-slate-800 p-6">
+              <Bell className="h-10 w-10 text-slate-200 dark:text-slate-700" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white transition-colors">No Notifications</h3>
-            <p className="text-slate-500 dark:text-slate-400 transition-colors">When you have updates, they will appear here.</p>
+            <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase italic">No Notifications</h3>
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mt-2 italic">You're all caught up! Nothing new here.</p>
           </Card>
         ) : (
           notifications.map(n => (
             <Card 
               key={n.id} 
-              className={`transition-all cursor-pointer hover:shadow-md dark:border-slate-800 ${n.read ? 'bg-white dark:bg-slate-900 opacity-80' : 'bg-white dark:bg-slate-900 border-l-4 border-l-blue-500 dark:border-l-blue-600'}`}
+              className={`group transition-all cursor-pointer hover:shadow-2xl dark:border-slate-800 rounded-[2rem] overflow-hidden ${n.read ? 'bg-white dark:bg-slate-900 opacity-80' : 'bg-white dark:bg-slate-900 ring-2 ring-blue-500/10'}`}
               onClick={() => handleNotificationClick(n)}
             >
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1 pr-4">
-                    <div className="flex items-center space-x-2">
-                      <Badge variant={n.read ? 'outline' : 'default'} className="text-[10px] uppercase">
+              <CardContent className="p-8">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="space-y-4 flex-1">
+                    <div className="flex items-center space-x-3">
+                      <Badge variant={n.read ? 'outline' : 'default'} className={`text-[9px] uppercase font-black tracking-widest px-4 py-1.5 rounded-full border-none ${n.read ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 text-white'}`}>
                         {n.type}
                       </Badge>
                       {!n.read && (
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 text-[10px]">NEW</Badge>
+                        <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
                       )}
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">
+                        {n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString() : 'Just Now'}
+                      </span>
                     </div>
-                    <h4 className="text-base font-bold text-slate-900 dark:text-white transition-colors">{n.title}</h4>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 transition-colors">{n.message}</p>
+                    <div>
+                      <h4 className="text-xl font-black text-slate-900 dark:text-white transition-colors italic leading-tight">{n.title}</h4>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 transition-colors mt-2 font-medium italic">{n.message}</p>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-end text-xs text-slate-400 shrink-0">
-                    <div className="flex items-center">
-                      <Clock className="h-3 w-3 mr-1" />
-                      {n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString() : 'Just now'}
-                    </div>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteNotification(n.id);
+                      }}
+                      className="h-10 w-10 rounded-xl text-slate-200 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    {!n.read && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markAsRead(n.id);
+                        }}
+                        className="text-[9px] font-black uppercase tracking-widest text-blue-500 hover:underline"
+                      >
+                        Mark Read
+                      </button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -2084,7 +2261,7 @@ function DashboardView({ clients, projects, tasks, sessions, payments, onStartCa
     >
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Dashboard</h1>
-        <p className="text-slate-500 dark:text-slate-400">Overview of Ambix Allie's current operations.</p>
+        <p className="text-slate-500 dark:text-slate-400">Overview of your current activity.</p>
       </header>
 
       {incomingCall && (
@@ -2118,10 +2295,10 @@ function DashboardView({ clients, projects, tasks, sessions, payments, onStartCa
       </div>
 
       <div className="grid gap-6 md:grid-cols-4">
-        <StatCard title="Active Projects" value={activeProjects.length} icon={<Briefcase className="h-5 w-5" />} />
-        <StatCard title="Pending Tasks" value={pendingTasks.length} icon={<CheckSquare className="h-5 w-5" />} />
-        <StatCard title="Session Requests" value={sessionRequests.length} icon={<Video className="h-5 w-5" />} />
-        <StatCard title="Pending Trans." value={pendingTransactions} icon={<TrendingUp className="h-5 w-5" />} />
+        <StatCard title="Current Work" value={activeProjects.length} icon={<Briefcase className="h-5 w-5" />} />
+        <StatCard title="Tasks To Do" value={pendingTasks.length} icon={<CheckSquare className="h-5 w-5" />} />
+        <StatCard title="Meeting Requests" value={sessionRequests.length} icon={<Video className="h-5 w-5" />} />
+        <StatCard title="Payments Due" value={pendingTransactions} icon={<TrendingUp className="h-5 w-5" />} />
       </div>
 
       {sessionRequests.length > 0 && (
@@ -2156,6 +2333,36 @@ function DashboardView({ clients, projects, tasks, sessions, payments, onStartCa
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
+        <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm transition-colors">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white transition-colors">Recent Transactions</CardTitle>
+            <CardDescription className="dark:text-slate-400 transition-colors">Latest activity in the dashboard.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {payments.slice(0, 5).map(payment => (
+                <div key={payment.id} className="flex items-center justify-between border-b border-slate-50 dark:border-slate-800 pb-4 last:border-0 last:pb-0">
+                  <div className="flex items-center space-x-3">
+                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${payment.status === 'Paid' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
+                      <DollarSign className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-900 dark:text-white transition-colors">
+                        {clients.find(c => c.id === payment.clientId)?.name || 'Private Client'}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 transition-colors">{payment.projectTitle || 'General Payment'} • ${payment.amount.toLocaleString()}</p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className={`${payment.status === 'Paid' ? 'border-green-200 text-green-600' : 'border-amber-200 text-amber-600'} transition-colors`}>
+                    {payment.status}
+                  </Badge>
+                </div>
+              ))}
+              {payments.length === 0 && <p className="text-center text-sm text-slate-400 py-4 transition-colors">No transactions yet.</p>}
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm transition-colors">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white transition-colors">Recent Projects</CardTitle>
@@ -2214,6 +2421,9 @@ function DashboardView({ clients, projects, tasks, sessions, payments, onStartCa
                     <div className={`h-2 w-2 rounded-full ${task.status === 'In Progress' ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
                     <div>
                       <p className="text-sm font-medium text-slate-900 dark:text-white transition-colors">{task.title}</p>
+                      {task.description && (
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1 italic mb-0.5">{task.description}</p>
+                      )}
                       <p className="text-xs text-slate-500 dark:text-slate-400 transition-colors">Due: {task.dueDate || 'No date'}</p>
                     </div>
                   </div>
@@ -2723,6 +2933,65 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
     }
   };
 
+  const handleDeletePayment = async (id: string, amount: number, projectId?: string) => {
+    if (!window.confirm('Are you sure you want to delete this payment record? This will also adjust the project total paid.')) return;
+    try {
+      await deleteDoc(doc(db, 'payments', id));
+      if (projectId) {
+        const project = clientProjects.find(p => p.id === projectId);
+        if (project) {
+          const newTotalPaid = Math.max(0, (project.totalPaid || 0) - amount);
+          const budget = project.budget || 0;
+          let newStatus: Project['paymentStatus'] = 'Not Paid';
+          if (newTotalPaid >= budget && budget > 0) newStatus = 'Fully Paid';
+          else if (newTotalPaid > 0) newStatus = 'Partially Paid';
+          
+          await updateDoc(doc(db, 'projects', projectId), {
+            totalPaid: newTotalPaid,
+            paymentStatus: newStatus
+          });
+        }
+      }
+      toast.success('Payment record deleted');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `payments/${id}`);
+    }
+  };
+
+  const handleEditPayment = async (p: Payment) => {
+    const newAmount = prompt('New Amount:', p.amount.toString());
+    const newDate = prompt('New Date (YYYY-MM-DD):', p.date);
+    
+    if (newAmount === null || newDate === null) return;
+    
+    const amountNum = Number(newAmount);
+    if (isNaN(amountNum)) {
+      toast.error('Invalid amount');
+      return;
+    }
+
+    try {
+      const diff = amountNum - p.amount;
+      await updateDoc(doc(db, 'payments', p.id), {
+        amount: amountNum,
+        date: newDate
+      });
+
+      if (p.projectId && diff !== 0) {
+        const project = clientProjects.find(pro => pro.id === p.projectId);
+        if (project) {
+          const newTotalPaid = (project.totalPaid || 0) + diff;
+          await updateDoc(doc(db, 'projects', p.projectId), {
+            totalPaid: newTotalPaid
+          });
+        }
+      }
+      toast.success('Payment updated');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `payments/${p.id}`);
+    }
+  };
+
   return (
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[700px]">
@@ -2882,8 +3151,8 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-medium">Payment Records</h3>
               <Dialog open={isAddPaymentOpen} onOpenChange={setIsAddPaymentOpen}>
-                <DialogTrigger render={<Button size="sm" className="bg-slate-900 text-white" />}>
-                    <Plus className="h-4 w-4 mr-1" /> Add Payment
+                <DialogTrigger render={<Button size="sm" className="bg-slate-900 text-white rounded-xl h-10 px-4 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-slate-200 dark:shadow-none hover:bg-slate-800 transition-all active:scale-95" />}>
+                  <Plus className="h-4 w-4 mr-2" /> Record Payment
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
@@ -2969,24 +3238,19 @@ function ManageClientDialog({ client, onClose, user, sendNotification }: { clien
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            onClick={() => {
-                              const newAmount = prompt('Edit Amount:', p.amount.toString());
-                              const newDate = prompt('Edit Date (YYYY-MM-DD):', p.date);
-                              if (newAmount !== null && newDate !== null) {
-                                updateDoc(doc(db, 'payments', p.id), { 
-                                  amount: Number(newAmount), 
-                                  date: newDate 
-                                });
-                              }
-                            }}
+                            className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-900"
+                            onClick={() => handleEditPayment(p)}
                           >
-                            <Edit3 className="h-4 w-4 text-slate-400" />
+                            <Edit3 className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={async () => {
-                            if (confirm('Delete this payment record? Project totals will not be automatically reverted.')) {
-                              await deleteDoc(doc(db, 'payments', p.id));
-                            }
-                          }}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 rounded-full text-slate-400 hover:text-red-500"
+                            onClick={() => handleDeletePayment(p.id, p.amount, p.projectId)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -3223,6 +3487,7 @@ function ProjectsView({ projects, clients, user, onStartCall, sendNotification }
     actualEndDate: '',
     budget: 0,
     liveUrl: '',
+    thumbnailUrl: '',
     description: ''
   });
 
@@ -3280,6 +3545,7 @@ function ProjectsView({ projects, clients, user, onStartCall, sendNotification }
       actualEndDate: '',
       budget: 0,
       liveUrl: '',
+      thumbnailUrl: '',
       description: '' 
     });
   };
@@ -3297,6 +3563,7 @@ function ProjectsView({ projects, clients, user, onStartCall, sendNotification }
       actualEndDate: project.actualEndDate || '',
       budget: project.budget || 0,
       liveUrl: project.liveUrl || '',
+      thumbnailUrl: project.thumbnailUrl || '',
       description: project.description || ''
     });
   };
@@ -3426,6 +3693,10 @@ function ProjectsView({ projects, clients, user, onStartCall, sendNotification }
                   <Input id="liveUrl" value={formData.liveUrl} onChange={e => setFormData({ ...formData, liveUrl: e.target.value })} placeholder="https://..." />
                 </div>
                 <div className="grid gap-2">
+                  <Label htmlFor="thumbnailUrl">Thumbnail URL</Label>
+                  <Input id="thumbnailUrl" value={formData.thumbnailUrl} onChange={e => setFormData({ ...formData, thumbnailUrl: e.target.value })} placeholder="https://image-url..." />
+                </div>
+                <div className="grid gap-2">
                   <Label htmlFor="description">Description</Label>
                   <Input id="description" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
                 </div>
@@ -3442,7 +3713,17 @@ function ProjectsView({ projects, clients, user, onStartCall, sendNotification }
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {projects.map(project => (
-          <Card key={project.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all duration-300">
+          <Card key={project.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+            {project.thumbnailUrl && (
+              <div className="h-32 w-full overflow-hidden border-b border-slate-100 dark:border-slate-800">
+                <img 
+                  src={project.thumbnailUrl} 
+                  alt={project.title} 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            )}
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between mb-2">
                 <Badge className={
@@ -3548,12 +3829,14 @@ function ProjectsView({ projects, clients, user, onStartCall, sendNotification }
 
 function TasksView({ tasks, projects, clients, user, onStartCall, sendNotification }: { tasks: Task[], projects: Project[], clients: Client[], user: User, onStartCall: (callData: any) => void, sendNotification: any }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [formData, setFormData] = useState({ 
     title: '', 
     projectId: '', 
     status: 'Todo' as const,
     dueDate: '',
-    assignedTo: ''
+    assignedTo: '',
+    description: ''
   });
 
   const handleAdd = async () => {
@@ -3564,9 +3847,21 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
         createdBy: user.uid
       });
       setIsAddOpen(false);
-      setFormData({ title: '', projectId: '', status: 'Todo', dueDate: '', assignedTo: '' });
+      setFormData({ title: '', projectId: '', status: 'Todo', dueDate: '', assignedTo: '', description: '' });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'tasks');
+    }
+  };
+
+  const handleUpdate = async (id: string, data: any) => {
+    try {
+      await updateDoc(doc(db, 'tasks', id), {
+        ...data,
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Task updated');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'tasks');
     }
   };
 
@@ -3656,6 +3951,16 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
                 <Input id="task-title" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
               </div>
               <div className="grid gap-2">
+                <Label htmlFor="task-description">Description</Label>
+                <textarea 
+                  id="task-description"
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Additional details about this task..."
+                  value={formData.description}
+                  onChange={e => setFormData({ ...formData, description: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
                 <Label htmlFor="task-project">Project</Label>
                 <Select value={formData.projectId} onValueChange={(v: any) => setFormData({ ...formData, projectId: v })}>
                   <SelectTrigger>
@@ -3686,7 +3991,7 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
         </Dialog>
       </header>
 
-      <div className="grid gap-8 md:grid-cols-3">
+      <div className="grid gap-8 md:grid-cols-4">
         <TaskColumn 
           title="Todo" 
           tasks={tasks.filter(t => t.status === 'Todo')} 
@@ -3695,6 +4000,7 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           onToggle={toggleStatus} 
           onDelete={handleDelete} 
           onDecline={handleDecline}
+          onEdit={setEditingTask}
           onStartCall={onStartCall}
         />
         <TaskColumn 
@@ -3705,6 +4011,7 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           onToggle={toggleStatus} 
           onDelete={handleDelete} 
           onDecline={handleDecline}
+          onEdit={setEditingTask}
           onStartCall={onStartCall}
         />
         <TaskColumn 
@@ -3714,6 +4021,7 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           clients={clients}
           onToggle={toggleStatus} 
           onDelete={handleDelete} 
+          onEdit={setEditingTask}
           onStartCall={onStartCall}
         />
         <TaskColumn 
@@ -3723,14 +4031,24 @@ function TasksView({ tasks, projects, clients, user, onStartCall, sendNotificati
           clients={clients}
           onToggle={toggleStatus} 
           onDelete={handleDelete} 
+          onEdit={setEditingTask}
           onStartCall={onStartCall}
         />
       </div>
+
+      {editingTask && (
+        <EditTaskDialog 
+          task={editingTask} 
+          projects={projects}
+          onClose={() => setEditingTask(null)}
+          onUpdate={(data) => handleUpdate(editingTask.id, data)}
+        />
+      )}
     </motion.div>
   );
 }
 
-function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onDecline, onStartCall }: { 
+function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onDecline, onEdit, onStartCall }: { 
   title: string, 
   tasks: Task[], 
   projects: Project[], 
@@ -3738,6 +4056,7 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onDec
   onToggle: (t: Task) => void, 
   onDelete: (id: string) => void, 
   onDecline?: (t: Task) => void,
+  onEdit?: (t: Task) => void,
   onStartCall: (callData: any) => void 
 }) {
   return (
@@ -3766,12 +4085,23 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onDec
                   <p className={`text-sm font-semibold text-slate-900 dark:text-white transition-colors ${task.status === 'Done' ? 'line-through opacity-50' : ''}`}>
                     {task.title}
                   </p>
+                  {task.description && (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2 italic">
+                      {task.description}
+                    </p>
+                  )}
                   <div className="flex space-x-1">
                     {onDecline && task.status === 'Todo' && (
                       <button onClick={() => onDecline(task)} className="text-slate-300 hover:text-red-500 transition-colors">
                         <XCircle className="h-4 w-4" />
                       </button>
                     )}
+                    <button onClick={() => {
+                        // We'll need a way to trigger editing. Let's add onEdit prop to TaskColumn.
+                        if (onEdit) onEdit(task);
+                    }} className="text-slate-300 hover:text-blue-500 transition-colors">
+                        <Edit3 className="h-4 w-4" />
+                    </button>
                     <button onClick={() => onToggle(task)} className="text-slate-300 hover:text-slate-900 dark:text-slate-600 dark:hover:text-white transition-colors">
                       <CheckSquare className={`h-4 w-4 ${task.status === 'Done' ? 'text-green-500' : ''}`} />
                     </button>
@@ -3820,14 +4150,34 @@ function TaskColumn({ title, tasks, projects, clients, onToggle, onDelete, onDec
   );
 }
 
-function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Payment[], clients: Client[], projects: Project[] }) {
+function PaymentsAnalyticsView({ payments, clients, projects, paymentPlans }: { payments: Payment[], clients: Client[], projects: Project[], paymentPlans: PaymentPlan[] }) {
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
+  const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [linkForm, setLinkForm] = useState({
     clientId: '',
     projectId: '',
     paythenUrl: '',
     method: 'email' as 'email' | 'sms'
+  });
+
+  const [manualForm, setManualForm] = useState({
+    clientId: '',
+    projectId: '',
+    amount: 0,
+    date: new Date().toISOString().split('T')[0],
+    status: 'Paid' as Payment['status'],
+    notes: ''
+  });
+
+  const [planForm, setPlanForm] = useState({
+    clientId: '',
+    title: '',
+    description: '',
+    items: [{ title: '', amount: 0, dueDate: '' }],
+    installments: 1,
+    frequency: 'monthly' as PaymentPlan['frequency']
   });
 
   const [editForm, setEditForm] = useState({
@@ -3845,6 +4195,28 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
   const pendingRevenue = payments
     .filter(p => p.status === 'Pending')
     .reduce((sum, p) => sum + p.amount, 0);
+
+  const handleManualLog = async () => {
+    if (!manualForm.clientId || manualForm.amount <= 0) {
+      toast.error('Identity and value required for manual ledger entry.');
+      return;
+    }
+    try {
+      const selectedProject = projects.find(p => p.id === manualForm.projectId);
+      
+      await addDoc(collection(db, 'payments'), {
+        ...manualForm,
+        projectTitle: selectedProject?.title || 'Manual Entry',
+        createdAt: serverTimestamp()
+      });
+
+      toast.success('Manual payment record synchronized');
+      setIsManualDialogOpen(false);
+      setManualForm({ clientId: '', projectId: '', amount: 0, date: new Date().toISOString().split('T')[0], status: 'Paid', notes: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'payments');
+    }
+  };
 
   const handleSendLink = () => {
     const client = clients.find(c => c.id === linkForm.clientId);
@@ -3872,12 +4244,46 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
   };
 
   const handleDeletePayment = async (id: string) => {
-    if (confirm('Are you sure you want to delete this payment record?')) {
+    if (window.confirm('Are you sure you want to delete this payment record?')) {
       try {
         await deleteDoc(doc(db, 'payments', id));
-        toast.success('Payment deleted');
+        toast.success('Payment record purged.');
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, 'payments');
+      }
+    }
+  };
+
+  const handleCreatePlan = async () => {
+    if (!planForm.clientId || !planForm.title || planForm.items.length === 0) {
+      toast.error('Please fill in all plan details');
+      return;
+    }
+
+    try {
+      const totalAmount = planForm.items.reduce((sum, item) => sum + item.amount, 0);
+      await addDoc(collection(db, 'paymentPlans'), {
+        ...planForm,
+        totalAmount,
+        status: 'Pending',
+        createdAt: serverTimestamp()
+      });
+      
+      setIsPlanDialogOpen(false);
+      setPlanForm({ clientId: '', title: '', description: '', items: [{ title: '', amount: 0, dueDate: '' }], installments: 1, frequency: 'monthly' });
+      toast.success('Strategy deployed: Payment plan transmitted to client node.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'paymentPlans');
+    }
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    if (window.confirm('Critical Action: Delete this payment plan?')) {
+      try {
+        await deleteDoc(doc(db, 'paymentPlans', id));
+        toast.success('Plan decommissioned');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'paymentPlans');
       }
     }
   };
@@ -3889,27 +4295,27 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
       exit={{ opacity: 0, y: -10 }}
       className="space-y-8"
     >
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Payments & Analytics</h1>
-          <p className="text-slate-500 dark:text-slate-400">Track revenue and manage client payment records.</p>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white uppercase italic">Payments & Revenue</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-medium tracking-wide uppercase text-[10px]">Manage client billing and track income</p>
         </div>
-        <div className="flex space-x-3">
-          <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
-            <DialogTrigger render={<Button className="bg-slate-900 text-white hover:bg-slate-800" />}>
-              <Send className="mr-2 h-4 w-4" /> Send Payment Link
+        <div className="flex flex-wrap gap-3">
+          <Dialog open={isPlanDialogOpen} onOpenChange={setIsPlanDialogOpen}>
+            <DialogTrigger render={<Button className="bg-blue-600 text-white rounded-2xl h-12 px-6 font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-blue-200 dark:shadow-none hover:bg-blue-700 transition-all active:scale-95" />}>
+              <Plus className="mr-2 h-4 w-4" /> Create Plan
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Send Paythen Link</DialogTitle>
-                <DialogDescription>Send a payment link to your client via email or text.</DialogDescription>
+            <DialogContent className="sm:max-w-[600px] rounded-[2.5rem] p-10">
+              <DialogHeader className="mb-6">
+                <DialogTitle className="text-3xl font-black tracking-tight">New Payment Plan</DialogTitle>
+                <DialogDescription>Set up scheduled payments for your clients.</DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-4">
+              <div className="space-y-6">
                 <div className="grid gap-2">
-                  <Label>Client</Label>
-                  <Select value={linkForm.clientId} onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select client" />
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Select Client</Label>
+                  <Select value={planForm.clientId} onValueChange={(v) => setPlanForm({ ...planForm, clientId: v })}>
+                    <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
+                      <SelectValue placeholder="Select client..." />
                     </SelectTrigger>
                     <SelectContent>
                       {clients.map(c => (
@@ -3919,28 +4325,188 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
                   </Select>
                 </div>
                 <div className="grid gap-2">
-                  <Label>Paythen URL</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Plan Name</Label>
                   <Input 
-                    placeholder="https://paythen.co/..." 
-                    value={linkForm.paythenUrl} 
-                    onChange={e => setLinkForm({ ...linkForm, paythenUrl: e.target.value })} 
+                    placeholder="e.g. Q3 Growth Retainer" 
+                    value={planForm.title} 
+                    onChange={e => setPlanForm({ ...planForm, title: e.target.value })}
+                    className="h-12 rounded-2xl border-slate-100 bg-slate-50"
                   />
                 </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-1">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Payment Schedule</Label>
+                    <Button variant="ghost" size="sm" onClick={() => setPlanForm({...planForm, items: [...planForm.items, { title: '', amount: 0, dueDate: '' }]})} className="text-blue-600 text-[10px] font-black uppercase tracking-widest">+ Add Payment</Button>
+                  </div>
+                  {planForm.items.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
+                      <div className="col-span-12 md:col-span-5 space-y-1">
+                        <Input 
+                          placeholder="e.g. Initial Deposit" 
+                          value={item.title} 
+                          onChange={e => {
+                            const newItems = [...planForm.items];
+                            newItems[idx].title = e.target.value;
+                            setPlanForm({ ...planForm, items: newItems });
+                          }}
+                          className="h-10 border-none bg-white shadow-sm rounded-xl text-xs"
+                        />
+                      </div>
+                      <div className="col-span-5 md:col-span-3">
+                        <Input 
+                          type="number" 
+                          placeholder="Amount" 
+                          value={item.amount} 
+                          onChange={e => {
+                            const newItems = [...planForm.items];
+                            newItems[idx].amount = Number(e.target.value);
+                            setPlanForm({ ...planForm, items: newItems });
+                          }}
+                          className="h-10 border-none bg-white shadow-sm rounded-xl text-xs text-right font-bold"
+                        />
+                      </div>
+                      <div className="col-span-5 md:col-span-3">
+                        <Input 
+                          type="date" 
+                          value={item.dueDate} 
+                          onChange={e => {
+                            const newItems = [...planForm.items];
+                            newItems[idx].dueDate = e.target.value;
+                            setPlanForm({ ...planForm, items: newItems });
+                          }}
+                          className="h-10 border-none bg-white shadow-sm rounded-xl text-[10px]"
+                        />
+                      </div>
+                      <div className="col-span-2 md:col-span-1 flex items-center justify-center">
+                        <button onClick={() => {
+                          const newItems = planForm.items.filter((_, i) => i !== idx);
+                          setPlanForm({ ...planForm, items: newItems });
+                        }} className="text-slate-300 hover:text-red-500 transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <DialogFooter className="mt-8">
+                <Button onClick={handleCreatePlan} className="bg-slate-900 text-white rounded-2xl h-14 w-full font-black uppercase text-xs tracking-widest shadow-xl">Create Payment Plan</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+ 
+          <Dialog open={isManualDialogOpen} onOpenChange={setIsManualDialogOpen}>
+            <DialogTrigger render={<Button className="bg-white text-slate-900 border-2 border-slate-100 rounded-2xl h-12 px-6 font-black uppercase text-[10px] tracking-[0.2em] shadow-sm hover:bg-slate-50 transition-all active:scale-95" />}>
+              <PlusCircle className="mr-2 h-4 w-4" /> Log Payment
+            </DialogTrigger>
+            <DialogContent className="rounded-[2.5rem] p-10">
+              <DialogHeader className="mb-6">
+                <DialogTitle className="text-3xl font-black tracking-tight">Manual Entry</DialogTitle>
+                <DialogDescription>Record payments received outside this system.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
                 <div className="grid gap-2">
-                  <Label>Method</Label>
-                  <Select value={linkForm.method} onValueChange={(v: any) => setLinkForm({ ...linkForm, method: v })}>
-                    <SelectTrigger>
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Select Client</Label>
+                  <Select value={manualForm.clientId} onValueChange={(v) => setManualForm({ ...manualForm, clientId: v })}>
+                    <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
+                      <SelectValue placeholder="Select client..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Amount ($)</Label>
+                    <Input 
+                      type="number"
+                      value={manualForm.amount} 
+                      onChange={e => setManualForm({ ...manualForm, amount: Number(e.target.value) })} 
+                      className="h-12 rounded-2xl border-slate-100 bg-slate-50 font-black"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Date Recieved</Label>
+                    <Input 
+                      type="date"
+                      value={manualForm.date} 
+                      onChange={e => setManualForm({ ...manualForm, date: e.target.value })} 
+                      className="h-12 rounded-2xl border-slate-100 bg-slate-50"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Status</Label>
+                  <Select value={manualForm.status} onValueChange={(v: any) => setManualForm({ ...manualForm, status: v })}>
+                    <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="email">Email</SelectItem>
-                      <SelectItem value="sms">Text (SMS)</SelectItem>
+                      <SelectItem value="Paid">Paid</SelectItem>
+                      <SelectItem value="Pending">Pending</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-              <DialogFooter>
-                <Button onClick={handleSendLink} className="bg-slate-900 text-white w-full">
+              <DialogFooter className="mt-8">
+                <Button onClick={handleManualLog} className="bg-slate-900 text-white rounded-2xl h-14 w-full font-black uppercase text-xs tracking-widest shadow-xl">
+                  Save Payment
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+ 
+          <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+            <DialogTrigger render={<Button className="bg-slate-900 text-white rounded-2xl h-12 px-6 font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-slate-200 dark:shadow-none hover:bg-slate-800 transition-all active:scale-95" />}>
+              <Send className="mr-2 h-4 w-4" /> Send Link
+            </DialogTrigger>
+            <DialogContent className="rounded-[2.5rem] p-10">
+              <DialogHeader className="mb-6">
+                <DialogTitle className="text-3xl font-black tracking-tight">Send Payment Link</DialogTitle>
+                <DialogDescription>Send a quick payment link to a client via email or SMS.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="grid gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Select Client</Label>
+                  <Select value={linkForm.clientId} onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v })}>
+                    <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
+                      <SelectValue placeholder="Select client..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name} ({c.company})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Payment Link URL</Label>
+                  <Input 
+                    placeholder="https://paythen.co/..." 
+                    value={linkForm.paythenUrl} 
+                    onChange={e => setLinkForm({ ...linkForm, paythenUrl: e.target.value })} 
+                    className="h-12 rounded-2xl border-slate-100 bg-slate-50"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Send Via</Label>
+                  <Select value={linkForm.method} onValueChange={(v: any) => setLinkForm({ ...linkForm, method: v })}>
+                    <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="sms">SMS</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter className="mt-8">
+                <Button onClick={handleSendLink} className="bg-slate-900 text-white rounded-2xl h-14 w-full font-black uppercase text-xs tracking-widest shadow-xl">
                   Send via {linkForm.method === 'email' ? 'Email' : 'SMS'}
                 </Button>
               </DialogFooter>
@@ -3948,139 +4514,221 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
           </Dialog>
         </div>
       </header>
-
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="p-6 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Revenue</h3>
-            <DollarSign className="h-4 w-4 text-green-500" />
+        <div className="grid gap-6 md:grid-cols-3">
+        <Card className="p-8 border-none bg-green-50/50 dark:bg-green-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-green-600">Money Received</h3>
+            <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center">
+              <DollarSign className="h-4 w-4 text-green-600" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">${totalRevenue.toLocaleString()}</div>
+          <div className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">${totalRevenue.toLocaleString()}</div>
+          <p className="text-[9px] text-green-600/60 font-bold uppercase mt-2 tracking-widest italic">Total collected so far</p>
         </Card>
-        <Card className="p-6 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">Pending Revenue</h3>
-            <Clock className="h-4 w-4 text-amber-500" />
+        <Card className="p-8 border-none bg-amber-50/50 dark:bg-amber-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">Money Owed</h3>
+            <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+              <Clock className="h-4 w-4 text-amber-600" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">${pendingRevenue.toLocaleString()}</div>
+          <div className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">${pendingRevenue.toLocaleString()}</div>
+          <p className="text-[9px] text-amber-600/60 font-bold uppercase mt-2 tracking-widest italic">Waiting for payment</p>
         </Card>
-        <Card className="p-6 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Transactions</h3>
-            <TrendingUp className="h-4 w-4 text-blue-500" />
+        <Card className="p-8 border-none bg-blue-50/50 dark:bg-blue-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">Total Payments</h3>
+            <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
+              <TrendingUp className="h-4 w-4 text-blue-600" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">{payments.length}</div>
+          <div className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">{payments.length}</div>
+          <p className="text-[9px] text-blue-600/60 font-bold uppercase mt-2 tracking-widest italic">Number of entries</p>
         </Card>
       </div>
+ 
+      <Tabs defaultValue="transactions" className="w-full">
+        <TabsList className="bg-slate-100/50 dark:bg-slate-900/50 p-1.5 rounded-[1.5rem] h-auto border-none">
+          <TabsTrigger value="transactions" className="rounded-xl px-8 py-3 font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-lg dark:data-[state=active]:bg-slate-800">Transactions</TabsTrigger>
+          <TabsTrigger value="plans" className="rounded-xl px-8 py-3 font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-lg dark:data-[state=active]:bg-slate-800">Payment Plans</TabsTrigger>
+        </TabsList>
+ 
+        <TabsContent value="transactions" className="mt-6">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl rounded-[2.5rem] overflow-hidden">
+            <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">RECENT PAYMENTS</h2>
+              <Badge variant="outline" className="text-[9px] font-black tracking-widest uppercase py-1 px-3">Real-time Feed</Badge>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-slate-50/50 dark:bg-slate-950/50">
+                  <TableRow className="border-none">
+                    <TableHead className="text-[10px] font-black uppercase tracking-widest p-6">Date</TableHead>
+                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Client</TableHead>
+                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Amount</TableHead>
+                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Status</TableHead>
+                    <TableHead className="text-right text-[10px] font-black uppercase tracking-widest p-6">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payments.map(payment => {
+                    const client = clients.find(c => c.id === payment.clientId);
+                    return (
+                      <TableRow key={payment.id} className="border-slate-50 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                        <TableCell className="text-[10px] font-bold text-slate-400 p-6 tracking-tighter">{payment.date}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-slate-900 dark:text-white leading-tight underline decoration-slate-200 underline-offset-4">{client?.name || 'Private Client'}</span>
+                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1 opacity-70">{payment.projectTitle || 'General Consulting'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-black text-slate-900 dark:text-white text-base tracking-tighter italic">${payment.amount.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge className={`font-black uppercase text-[9px] tracking-widest py-1.5 px-4 rounded-full border-none ${
+                            payment.status === 'Paid' ? 'bg-green-100 text-green-700' :
+                            payment.status === 'Overdue' ? 'bg-red-100 text-red-700' :
+                            'bg-amber-100 text-amber-700'
+                          }`}>
+                            {payment.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right p-6">
+                          <div className="flex justify-end space-x-2">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-900 hover:text-white transition-all shadow-sm"
+                              onClick={() => {
+                                setEditingPayment(payment);
+                                setEditForm({
+                                  amount: payment.amount,
+                                  status: payment.status,
+                                  date: payment.date,
+                                  notes: payment.notes || '',
+                                  projectTitle: payment.projectTitle || ''
+                                });
+                              }}
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 rounded-full bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                              onClick={() => handleDeletePayment(payment.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        </TabsContent>
 
-      <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Recent Transactions</h2>
-        </div>
-        <Table>
-          <TableHeader className="bg-slate-50 dark:bg-slate-950">
-            <TableRow className="dark:border-slate-800">
-              <TableHead>Date</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {payments.map(payment => {
-              const client = clients.find(c => c.id === payment.clientId);
+        <TabsContent value="plans" className="mt-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            {paymentPlans.map(plan => {
+              const client = clients.find(c => c.id === plan.clientId);
               return (
-                <TableRow key={payment.id} className="dark:border-slate-800">
-                  <TableCell className="text-sm text-slate-500 dark:text-slate-400">{payment.date}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col text-sm">
-                      <span className="font-medium text-slate-900 dark:text-white">{client?.name || 'Unknown'}</span>
-                      <span className="text-[10px] text-slate-500">{payment.projectTitle}</span>
+                <Card key={plan.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl rounded-[2.5rem] overflow-hidden flex flex-col">
+                  <CardHeader className="p-8 pb-4">
+                    <div className="flex justify-between items-start mb-4">
+                      <Badge className={`font-black uppercase text-[9px] tracking-widest py-1.5 px-4 rounded-full ${
+                        plan.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                        plan.status === 'Pending' ? 'bg-blue-600 text-white animate-pulse' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {plan.status}
+                      </Badge>
+                      <button onClick={() => handleDeletePlan(plan.id)} className="text-slate-200 hover:text-red-500 transition-colors">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
-                  </TableCell>
-                  <TableCell className="font-bold text-slate-900 dark:text-white">${payment.amount.toLocaleString()}</TableCell>
-                  <TableCell>
-                    <Badge variant={payment.status === 'Paid' ? 'default' : 'outline'} className={
-                      payment.status === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' :
-                      payment.status === 'Overdue' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' :
-                      'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
-                    }>
-                      {payment.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end space-x-1">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => {
-                          setEditingPayment(payment);
-                          setEditForm({
-                            amount: payment.amount,
-                            status: payment.status,
-                            date: payment.date,
-                            notes: payment.notes || '',
-                            projectTitle: payment.projectTitle || ''
-                          });
-                        }}
-                      >
-                        <Edit3 className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeletePayment(payment.id)}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                    <CardTitle className="text-2xl font-black tracking-tight underline decoration-slate-200 underline-offset-8 decoration-4 mb-2">{plan.title}</CardTitle>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{client?.name || 'NODE'} • {client?.company}</p>
+                  </CardHeader>
+                  <CardContent className="p-8 pt-4 flex-1">
+                    <div className="space-y-4 mb-8">
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800">
+                        <p className="text-xs text-slate-500 font-medium leading-relaxed italic">{plan.description || "Strategic financial architecture for digital expansion."}</p>
+                      </div>
+                      <div className="space-y-3">
+                        {plan.items.map((item, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:scale-[1.02] transition-transform">
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-black uppercase text-slate-900 dark:text-white">{item.title}</span>
+                              <span className="text-[9px] text-slate-400 font-bold italic">{item.dueDate || 'TBD'}</span>
+                            </div>
+                            <span className="text-sm font-black tracking-tight">${item.amount.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </TableCell>
-                </TableRow>
+                    <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Net Valuation</span>
+                      <span className="text-2xl font-black italic tracking-tighter text-blue-600">${plan.totalAmount.toLocaleString()}</span>
+                    </div>
+                  </CardContent>
+                </Card>
               );
             })}
-            {payments.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-12 text-slate-400">
-                  No payment records found.
-                </TableCell>
-              </TableRow>
+            {paymentPlans.length === 0 && (
+              <div className="col-span-full py-24 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[3rem]">
+                <ShieldCheck className="h-12 w-12 text-slate-100 mx-auto mb-4" />
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">No Payment Plans Deployed</p>
+              </div>
             )}
-          </TableBody>
-        </Table>
-      </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!editingPayment} onOpenChange={(open) => !open && setEditingPayment(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Payment Record</DialogTitle>
+        <DialogContent className="rounded-[2.5rem] p-10">
+          <DialogHeader className="mb-6">
+            <DialogTitle className="text-3xl font-black tracking-tight italic">Transaction Verification</DialogTitle>
+            <DialogDescription>Modify validated transaction records in the core ledger.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-6 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Amount ($)</Label>
-                <Input type="number" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: Number(e.target.value)})} />
+                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Lead Value ($)</Label>
+                <Input type="number" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: Number(e.target.value)})} className="h-12 rounded-2xl border-slate-100 bg-slate-50 font-black italic" />
               </div>
               <div className="grid gap-2">
-                <Label>Status</Label>
+                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Verification Status</Label>
                 <Select value={editForm.status} onValueChange={(v: any) => setEditForm({...editForm, status: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Pending">Pending</SelectItem>
-                    <SelectItem value="Paid">Paid</SelectItem>
-                    <SelectItem value="Overdue">Overdue</SelectItem>
-                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                    <SelectItem value="Pending">Pending Audit</SelectItem>
+                    <SelectItem value="Paid">Verified Paid</SelectItem>
+                    <SelectItem value="Overdue">Critical Lag</SelectItem>
+                    <SelectItem value="Cancelled">Rescinded</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid gap-2">
-              <Label>Date</Label>
-              <Input type="date" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} />
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Ledger Timestamp</Label>
+              <Input type="date" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} className="h-12 rounded-2xl border-slate-100 bg-slate-50" />
             </div>
             <div className="grid gap-2">
-              <Label>Notes</Label>
-              <Input value={editForm.notes} onChange={e => setEditForm({...editForm, notes: e.target.value})} />
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Project Assignment</Label>
+              <Input value={editForm.projectTitle} onChange={e => setEditForm({...editForm, projectTitle: e.target.value})} className="h-12 rounded-2xl border-slate-100 bg-slate-50" />
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Administrative Notes</Label>
+              <Input value={editForm.notes} onChange={e => setEditForm({...editForm, notes: e.target.value})} className="h-12 rounded-2xl border-slate-100 bg-slate-50" />
             </div>
           </div>
-          <DialogFooter>
-            <Button onClick={handleUpdatePayment} className="bg-slate-900 text-white w-full">Update Record</Button>
+          <DialogFooter className="mt-8">
+            <Button onClick={handleUpdatePayment} className="bg-slate-900 text-white rounded-2xl h-14 w-full font-black uppercase text-xs tracking-widest shadow-xl">Commit Ledger Updates</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -4091,6 +4739,11 @@ function PaymentsAnalyticsView({ payments, clients, projects }: { payments: Paym
 function LeadsView({ leads, clients, user }: { leads: Lead[], clients: Client[], user: User }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [purchaseLead, setPurchaseLead] = useState<Lead | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('All');
+  const isAdmin = ADMIN_EMAILS.map(e => e.toLowerCase()).includes((user.email || '').toLowerCase());
+
   const [form, setForm] = useState({
     clientId: '',
     name: '',
@@ -4098,9 +4751,35 @@ function LeadsView({ leads, clients, user }: { leads: Lead[], clients: Client[],
     phone: '',
     source: '',
     type: 'Lead' as Lead['type'],
+    status: 'New' as Lead['status'],
     notes: '',
-    pricePaid: 0
+    price: 35, // Default price
+    leadCity: '',
+    leadIndustry: '',
+    leadDescription: ''
   });
+
+  const handleConvert = async (lead: Lead) => {
+    try {
+      await updateDoc(doc(db, 'leads', lead.id), {
+        status: 'Converted',
+        updatedAt: serverTimestamp()
+      });
+      
+      // Optionally create a customer record automatically
+      await addDoc(collection(db, 'clientCustomers'), {
+        name: lead.name,
+        email: lead.email || '',
+        phone: lead.phone || '',
+        clientId: lead.clientId,
+        createdAt: serverTimestamp()
+      });
+
+      toast.success('Lead converted to Customer! Growth record secured.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'leads');
+    }
+  };
 
   const handleSave = async () => {
     if (!form.clientId || !form.name) return;
@@ -4108,20 +4787,22 @@ function LeadsView({ leads, clients, user }: { leads: Lead[], clients: Client[],
       if (editingLead) {
         await updateDoc(doc(db, 'leads', editingLead.id), {
           ...form,
-          email: form.email.trim().toLowerCase(),
+          email: (form.email || '').trim().toLowerCase(),
           updatedAt: serverTimestamp()
         });
       } else {
         await addDoc(collection(db, 'leads'), {
           ...form,
-          email: form.email.trim().toLowerCase(),
+          email: (form.email || '').trim().toLowerCase(),
           status: 'New',
+          isPurchased: false,
+          isDeclined: false,
           createdAt: serverTimestamp()
         });
       }
       setIsAddOpen(false);
       setEditingLead(null);
-      setForm({ clientId: '', name: '', email: '', phone: '', source: '', type: 'Lead', notes: '', pricePaid: 0 });
+      setForm({ clientId: '', name: '', email: '', phone: '', source: '', type: 'Lead', status: 'New', notes: '', price: 35, leadCity: '', leadIndustry: '', leadDescription: '' });
       toast.success('Lead saved');
     } catch (error) {
       console.error('Error saving lead:', error);
@@ -4129,150 +4810,466 @@ function LeadsView({ leads, clients, user }: { leads: Lead[], clients: Client[],
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this lead?')) return;
-    await deleteDoc(doc(db, 'leads', id));
+    try {
+      await deleteDoc(doc(db, 'leads', id));
+      toast.success('Lead deleted');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'leads');
+    }
   };
 
   const handleStatusChange = async (id: string, status: Lead['status']) => {
     await updateDoc(doc(db, 'leads', id), { status });
   };
 
+  const handleDecline = async (id: string) => {
+    if (!confirm('Are you sure you want to decline this lead? It will be removed from your list.')) return;
+    try {
+      await updateDoc(doc(db, 'leads', id), { 
+        status: 'Declined',
+        isDeclined: true,
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Lead Declined');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'leads');
+    }
+  };
+
+  const handlePurchaseSuccess = async () => {
+    if (!purchaseLead) return;
+    try {
+      // 1. Update Lead Status
+      await updateDoc(doc(db, 'leads', purchaseLead.id), {
+        status: 'Purchased',
+        isPurchased: true,
+        purchasedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. Record as a Payment
+      await addDoc(collection(db, 'payments'), {
+        clientId: purchaseLead.clientId,
+        amount: purchaseLead.price || 35,
+        projectId: 'Leads',
+        projectTitle: 'Lead Purchase',
+        status: 'Paid',
+        type: 'Other',
+        date: new Date().toISOString().split('T')[0],
+        description: `Lead Purchase: ${purchaseLead.name}`,
+        notes: `Square Payment Success. Lead ID: ${purchaseLead.id}`,
+        createdAt: serverTimestamp()
+      });
+
+      setPurchaseLead(null);
+      toast.success('Lead details unlocked and payment recorded!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'leads');
+    }
+  };
+
+  const filteredLeads = leads
+    .filter(l => !l.isDeclined || isAdmin)
+    .filter(l => {
+      if (activeTab === 'All') return true;
+      if (activeTab === 'New') return l.status === 'New';
+      if (activeTab === 'Purchased') return l.status === 'Purchased';
+      if (activeTab === 'Converted') return l.status === 'Converted';
+      return true;
+    })
+    .filter(l => {
+      const search = searchTerm.toLowerCase();
+      return (
+        l.name.toLowerCase().includes(search) ||
+        (l.leadIndustry || '').toLowerCase().includes(search) ||
+        (l.leadCity || '').toLowerCase().includes(search)
+      );
+    });
+
+  const stats = {
+    total: leads.length,
+    new: leads.filter(l => l.status === 'New').length,
+    purchased: leads.filter(l => l.status === 'Purchased').length,
+    converted: leads.filter(l => l.status === 'Converted').length,
+    conversionRate: leads.length > 0 ? Math.round((leads.filter(l => l.status === 'Converted').length / leads.length) * 100) : 0
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Leads Management</h2>
-          <p className="text-slate-500 text-sm">Manage Pay Per Lead and Pay Per Appointment cycles.</p>
-        </div>
-        <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white dark:bg-white dark:text-slate-900">
-          <Plus className="mr-2 h-4 w-4" /> Add Lead
-        </Button>
+    <div className="space-y-10">
+      {/* Stats Summary */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="p-6 border-none bg-blue-50/50 dark:bg-blue-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">All Leads</h3>
+            <Activity className="h-4 w-4 text-blue-600" />
+          </div>
+          <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
+          <p className="text-[9px] text-blue-400 font-bold uppercase mt-1 tracking-widest italic">Total Records</p>
+        </Card>
+        <Card className="p-6 border-none bg-amber-50/50 dark:bg-amber-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">New</h3>
+            <Sparkles className="h-4 w-4 text-amber-600" />
+          </div>
+          <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.new}</p>
+          <p className="text-[9px] text-amber-400 font-bold uppercase mt-1 tracking-widest italic">Current Leads</p>
+        </Card>
+        <Card className="p-6 border-none bg-green-50/50 dark:bg-green-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-green-600">Closed</h3>
+            <UserCheck className="h-4 w-4 text-green-600" />
+          </div>
+          <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.converted}</p>
+          <p className="text-[9px] text-green-400 font-bold uppercase mt-1 tracking-widest italic">Successful Wins</p>
+        </Card>
+        <Card className="p-6 border-none bg-indigo-50/50 dark:bg-indigo-950/20 rounded-[2rem] shadow-sm">
+          <div className="flex items-center justify-between pb-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Win Rate</h3>
+            <TrendingUp className="h-4 w-4 text-indigo-600" />
+          </div>
+          <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.conversionRate}%</p>
+          <p className="text-[9px] text-indigo-400 font-bold uppercase mt-1 tracking-widest italic">Performance (%)</p>
+        </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {leads.map(lead => {
+      {isAdmin && (
+        <Card className="my-10 p-10 border-none bg-slate-900 text-white rounded-[3rem] overflow-hidden relative shadow-2xl">
+          <div className="relative z-10">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="h-12 w-12 rounded-2xl bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                <Zap className="h-7 w-7 text-white" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black tracking-tight uppercase italic leading-none">Zapier Integration</h3>
+                <p className="text-orange-400 text-[10px] font-black uppercase tracking-[0.2em] mt-1">Automate Your Growth</p>
+              </div>
+            </div>
+            <p className="text-slate-400 text-sm max-w-2xl mb-8 leading-relaxed">
+              Connect leads from Facebook, TikTok, or your website directly to Ambix Allie. 
+              Search for "Firebase" or "Cloud Firestore" in your Zapier account to get started.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="p-5 rounded-[1.5rem] bg-white/5 border border-white/10 backdrop-blur-sm">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Collection</p>
+                <code className="text-xs font-mono text-orange-200">leads</code>
+              </div>
+              <div className="p-5 rounded-[1.5rem] bg-white/5 border border-white/10 backdrop-blur-sm">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Project ID</p>
+                <code className="text-xs font-mono text-orange-200">{db.app.options.projectId}</code>
+              </div>
+              <div className="p-5 rounded-[1.5rem] bg-white/5 border border-white/10 backdrop-blur-sm">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Instructions</p>
+                <p className="text-xs font-bold text-white">Use "Create Document"</p>
+              </div>
+            </div>
+          </div>
+          <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/10 blur-[100px] -mr-40 -mt-40" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 blur-[80px] -ml-32 -mb-32" />
+        </Card>
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 dark:border-slate-800 pb-10">
+        <div className="space-y-1">
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight uppercase">Leads & Opportunities</h2>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] italic">
+            {isAdmin ? 'Manage Pay Per Lead inventory and client distribution.' : 'Review and secure incoming business opportunities.'}
+          </p>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input 
+              placeholder="Search leads..." 
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="pl-10 h-11 rounded-2xl border-slate-200 bg-white dark:bg-slate-900 shadow-sm text-xs font-bold"
+            />
+          </div>
+          {isAdmin && (
+            <Button onClick={() => setIsAddOpen(true)} className="bg-slate-900 text-white rounded-2xl h-11 px-8 font-black uppercase text-[10px] tracking-widest shadow-xl whitespace-nowrap">
+              <Plus className="mr-2 h-4 w-4" /> Add Lead
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-center mb-8">
+        <div className="p-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-2xl flex gap-1">
+          {['All', 'New', 'Purchased', 'Converted'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                activeTab === tab 
+                ? 'bg-white dark:bg-slate-700 shadow-lg text-slate-900 dark:text-white' 
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+        {filteredLeads.map(lead => {
           const client = clients.find(c => c.id === lead.clientId);
+          const isUnlocked = isAdmin || lead.isPurchased || lead.status === 'Converted';
+          
           return (
-            <Card key={lead.id} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm transition-all hover:shadow-md">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                  <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest">{lead.type}</Badge>
-                  <Select value={lead.status} onValueChange={(v: any) => handleStatusChange(lead.id, v)}>
-                    <SelectTrigger className="h-7 w-auto text-[10px] font-bold">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="New">New</SelectItem>
-                      <SelectItem value="Contacted">Contacted</SelectItem>
-                      <SelectItem value="Qualified">Qualified</SelectItem>
-                      <SelectItem value="Appointment Set">Appt Set</SelectItem>
-                      <SelectItem value="Closed">Closed</SelectItem>
-                      <SelectItem value="Lost">Lost</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <Card key={lead.id} className={`group border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex flex-col rounded-[2.5rem] transition-all duration-500 hover:shadow-2xl ${!isUnlocked ? 'ring-2 ring-blue-500/20 shadow-xl' : ''}`}>
+              <CardHeader className="p-8 pb-4">
+                <div className="flex justify-between items-center mb-6">
+                  <Badge variant="outline" className="text-[9px] uppercase font-black tracking-[0.2em] dark:border-slate-800 dark:text-slate-500 bg-slate-50/50 dark:bg-slate-900 px-4 py-1.5 rounded-full border-none">{lead.type}</Badge>
+                  <Badge className={`font-black uppercase text-[9px] tracking-widest px-4 py-1.5 rounded-full border-none ${
+                    lead.status === 'Converted' ? 'bg-indigo-600 text-white' :
+                    lead.status === 'Purchased' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' :
+                    lead.status === 'New' ? 'bg-blue-600 text-white animate-pulse' : 
+                    'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                  }`}>
+                    {lead.status}
+                  </Badge>
                 </div>
-                <CardTitle className="mt-2 text-lg font-bold">{lead.name}</CardTitle>
-                <p className="text-xs text-slate-500 font-medium">{client?.name || 'Assigned to Private Client'}</p>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
-                  <Mail className="mr-2 h-3 w-3" /> {lead.email}
-                </div>
-                {lead.phone && (
-                  <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
-                    <Phone className="mr-2 h-3 w-3" /> {lead.phone}
+                
+                <CardTitle className={`text-2xl font-black tracking-tight leading-tight transition-all duration-700 italic flex items-center ${!isUnlocked ? 'blur-[5px] select-none opacity-50' : ''}`}>
+                  {isUnlocked ? lead.name : 'Unknown Lead'}
+                </CardTitle>
+                
+                <div className="flex items-center space-x-2 mt-4">
+                  <div className="h-5 w-5 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center border border-slate-100 dark:border-slate-700">
+                    <Target className="h-3 w-3 text-slate-400" />
                   </div>
-                )}
-                <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
-                  <TrendingUp className="mr-2 h-3 w-3" /> Source: {lead.source || 'Direct'}
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 opacity-80">
+                    {lead.leadIndustry || 'Industry'} • {lead.leadCity || 'Location'}
+                  </span>
                 </div>
-                <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center">
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Revenue Impact</span>
-                  <span className="font-bold text-green-600">${(lead.pricePaid || 0).toLocaleString()}</span>
+              </CardHeader>
+
+              <CardContent className="p-8 pt-0 flex-1 flex flex-col">
+                <div className="space-y-6 mb-8 pt-4">
+                  <div className={`p-5 rounded-[2rem] bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800 group-hover:bg-blue-50/10 transition-colors ${!isUnlocked && 'opacity-60 grayscale'}`}>
+                    <p className="text-xs text-slate-500 font-medium leading-relaxed italic line-clamp-4">
+                      {lead.leadDescription || 'Lead interested in business growth and marketing services.'}
+                    </p>
+                  </div>
+
+                  {isUnlocked ? (
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center text-[11px] text-slate-600 dark:text-slate-400 font-black uppercase tracking-widest group/item">
+                        <div className="h-8 w-8 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center mr-3 group-hover/item:scale-110 transition-transform">
+                          <Mail className="h-3 w-3 text-blue-500" />
+                        </div>
+                        {lead.email || 'NO_EMAIL_RECORD'}
+                      </div>
+                      <div className="flex items-center text-[11px] text-slate-600 dark:text-slate-400 font-black uppercase tracking-widest group/item">
+                        <div className="h-8 w-8 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center mr-3 group-hover/item:scale-110 transition-transform">
+                          <Phone className="h-3 w-3 text-blue-500" />
+                        </div>
+                        {lead.phone || 'NO_PH_RECORD'}
+                      </div>
+                      <div className="flex items-center text-[11px] text-slate-600 dark:text-slate-400 font-black uppercase tracking-widest group/item">
+                        <div className="h-8 w-8 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center mr-3 group-hover/item:scale-110 transition-transform">
+                          <TrendingUp className="h-3 w-3 text-blue-500" />
+                        </div>
+                        Source: {lead.source || 'Direct Acquisition'}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-8 border-2 border-dashed border-blue-100 rounded-[2rem] bg-blue-50/10 dark:border-blue-900/30 text-center">
+                      <LockIcon className="h-6 w-6 text-blue-400 mx-auto mb-3" />
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 dark:text-blue-400 underline decoration-blue-200 underline-offset-4">Lead Is Locked</p>
+                      <p className="text-[9px] text-slate-400 mt-3 font-medium uppercase tracking-widest leading-relaxed">Secure this lead to reveal their<br/>contact information</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-auto">
+                  {isAdmin ? (
+                    <div className="flex gap-2 pt-8 border-t border-slate-100 dark:border-slate-800">
+                      <Button variant="outline" size="sm" className="flex-1 rounded-2xl font-black uppercase text-[9px] tracking-widest h-12 border-slate-100 dark:border-slate-800" onClick={() => {
+                        setEditingLead(lead);
+                        setForm({
+                          clientId: lead.clientId,
+                          name: lead.name,
+                          email: lead.email || '',
+                          phone: lead.phone || '',
+                          source: lead.source || '',
+                          type: lead.type,
+                          status: lead.status,
+                          notes: lead.notes || '',
+                          price: lead.price || 35,
+                          leadCity: lead.leadCity || '',
+                          leadIndustry: lead.leadIndustry || '',
+                          leadDescription: lead.leadDescription || ''
+                        });
+                        setIsAddOpen(true);
+                      }}>Edit</Button>
+                      <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl text-slate-200 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={() => handleDelete(lead.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : lead.status === 'New' ? (
+                    <div className="grid grid-cols-2 gap-3 pt-8 border-t border-slate-100 dark:border-slate-800">
+                      <Button 
+                        className="bg-blue-600 text-white hover:bg-blue-700 rounded-2xl h-14 font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-200 dark:shadow-none transition-all active:scale-95 flex flex-col items-center justify-center space-y-0.5 border-none"
+                        onClick={() => setPurchaseLead(lead)}
+                      >
+                        <span>Buy Lead</span>
+                        <span className="text-[9px] opacity-70 tracking-tight">${lead.price || 35}</span>
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        className="h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400 hover:text-red-500"
+                        onClick={() => handleDecline(lead.id)}
+                      >
+                        Pass
+                      </Button>
+                    </div>
+                  ) : lead.status === 'Purchased' ? (
+                    <div className="pt-8 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3">
+                      <Button 
+                        onClick={() => handleConvert(lead)}
+                        className="w-full bg-green-500 hover:bg-green-600 text-white rounded-2xl h-12 font-black uppercase text-[10px] tracking-widest border-none shadow-lg shadow-green-100 dark:shadow-none"
+                      >
+                        <UserCheck className="mr-2 h-4 w-4" /> Mark Converted
+                      </Button>
+                      <div className="flex items-center justify-center space-x-2 py-1">
+                        <CheckCircle2 className="h-3 w-3 text-slate-300" />
+                        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-300">Retrieved on {lead.purchasedAt?.toDate ? lead.purchasedAt.toDate().toLocaleDateString() : 'TBD'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pt-8 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center space-x-2 py-4">
+                      <Badge className="bg-indigo-50 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300 px-6 py-2 rounded-full font-black uppercase text-[9px] tracking-widest border-none">
+                        Win Logged
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               </CardContent>
-              <CardFooter className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => {
-                  setEditingLead(lead);
-                  setForm({
-                    clientId: lead.clientId,
-                    name: lead.name,
-                    email: lead.email || '',
-                    phone: lead.phone || '',
-                    source: lead.source || '',
-                    type: lead.type,
-                    notes: lead.notes || '',
-                    pricePaid: lead.pricePaid || 0
-                  });
-                  setIsAddOpen(true);
-                }}>Edit</Button>
-                <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500" onClick={() => handleDelete(lead.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </CardFooter>
             </Card>
           );
         })}
       </div>
 
+      {filteredLeads.length === 0 && (
+        <div className="py-32 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[3rem]">
+          <Target className="h-12 w-12 text-slate-200 mx-auto mb-4 opacity-20" />
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 italic">No leads found</p>
+        </div>
+      )}
+
+      {purchaseLead && (
+        <SquarePaymentDialog 
+          amount={purchaseLead.price || 35}
+          leadId={purchaseLead.id}
+          clientId={purchaseLead.clientId}
+          onSuccess={handlePurchaseSuccess}
+          onCancel={() => setPurchaseLead(null)}
+        />
+      )}
+
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>{editingLead ? 'Edit Lead' : 'Add New Lead'}</DialogTitle>
+        <DialogContent className="sm:max-w-[500px] rounded-[2.5rem] p-10">
+          <DialogHeader className="mb-6">
+            <DialogTitle className="text-3xl font-black tracking-tight">{editingLead ? 'Edit Lead' : 'Add New Lead'}</DialogTitle>
+            <DialogDescription>Add or update lead details here.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-6">
             <div className="grid gap-2">
-              <Label>Assigned Client</Label>
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Target Client Assignment</Label>
               <Select value={form.clientId} onValueChange={v => setForm({ ...form, clientId: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select client" />
+                <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50 font-medium">
+                  <SelectValue placeholder="Select specialized client..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="rounded-2xl border-none shadow-2xl">
                   {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+            
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Lead Name</Label>
-                <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                <Label htmlFor="lead-name" className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Identity/Company</Label>
+                <Input id="lead-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="h-12 rounded-2xl border-slate-100 bg-slate-50" placeholder="John Doe" />
               </div>
               <div className="grid gap-2">
-                <Label>Source</Label>
-                <Input value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} placeholder="e.g. FB Ads" />
+                <Label htmlFor="lead-price" className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Lead Market Price ($)</Label>
+                <Input id="lead-price" type="number" value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} className="h-12 rounded-2xl border-slate-100 bg-slate-50" />
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Email</Label>
-                <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Phone</Label>
-                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Type</Label>
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Lead Category</Label>
                 <Select value={form.type} onValueChange={(v: any) => setForm({ ...form, type: v })}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Lead">Lead</SelectItem>
-                    <SelectItem value="Appointment">Appointment</SelectItem>
+                    <SelectItem value="Lead">Standard Lead</SelectItem>
+                    <SelectItem value="Appointment">Live Appointment</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Price Paid (Cycle Revenue)</Label>
-                <Input type="number" value={form.pricePaid} onChange={e => setForm({ ...form, pricePaid: parseFloat(e.target.value) })} />
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Current Status</Label>
+                <Select value={form.status} onValueChange={(v: any) => setForm({ ...form, status: v })}>
+                  <SelectTrigger className="h-12 rounded-2xl border-slate-100 bg-slate-50 font-black text-[10px] uppercase tracking-widest">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl border-none shadow-2xl">
+                    <SelectItem value="New">New Lead</SelectItem>
+                    <SelectItem value="Purchased">Purchased</SelectItem>
+                    <SelectItem value="Interested">Interested</SelectItem>
+                    <SelectItem value="Converted">Converted/Closed</SelectItem>
+                    <SelectItem value="Lost">Lost Opportunity</SelectItem>
+                    <SelectItem value="Declined">Declined</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="lead-source" className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Inbound Channel</Label>
+              <Input id="lead-source" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} className="h-12 rounded-2xl border-slate-100 bg-slate-50" placeholder="Meta Ads, Google, etc." />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 border-t border-slate-50 pt-4">
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Masked City</Label>
+                <Input value={form.leadCity} onChange={e => setForm({ ...form, leadCity: e.target.value })} className="h-12 rounded-2xl border-slate-100 bg-slate-50" placeholder="e.g. Los Angeles" />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Masked Industry</Label>
+                <Input value={form.leadIndustry} onChange={e => setForm({ ...form, leadIndustry: e.target.value })} className="h-12 rounded-2xl border-slate-100 bg-slate-50" placeholder="e.g. Fintech" />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Masked Description (Visible to all)</Label>
+              <textarea 
+                value={form.leadDescription} 
+                onChange={e => setForm({ ...form, leadDescription: e.target.value })} 
+                className="w-full min-h-[80px] rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 text-xs font-medium"
+                placeholder="Brief high-level overview to entice the client..."
+              />
+            </div>
+
+            <div className="space-y-4 pt-4">
+              <div className="p-5 rounded-2xl bg-blue-50/50 dark:bg-blue-900/10 space-y-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 block mb-2">Unlocked Contact Data (Hidden until paid)</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="h-11 rounded-xl bg-white border-none shadow-sm" placeholder="Email Address" />
+                  <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="h-11 rounded-xl bg-white border-none shadow-sm" placeholder="Phone Number" />
+                </div>
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button onClick={handleSave} className="bg-slate-900 text-white w-full">Save Lead</Button>
+          <DialogFooter className="mt-8 flex-col sm:flex-row gap-4">
+            <Button variant="ghost" onClick={() => setIsAddOpen(false)} className="rounded-2xl h-14 font-black uppercase text-xs tracking-widest text-slate-400">Discard Changes</Button>
+            <Button onClick={handleSave} className="bg-slate-900 text-white rounded-2xl h-14 px-10 font-black uppercase text-xs tracking-widest shadow-xl flex-1">Authorize Lead Inject</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -5377,7 +6374,20 @@ function ClientTaskRequestsView({ tasks, projects, clientId, clientName, onReque
                     </div>
                     
                     <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-1">{task.title}</h4>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">{project?.title || 'General Request'}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{project?.title || 'General Request'}</p>
+                    
+                    {task.description && (
+                      <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-4 font-medium italic">"{task.description}"</p>
+                    )}
+
+                    <div className="flex items-center space-x-2 mb-4">
+                      <div className="h-5 w-5 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                        <Users className="h-3 w-3 text-slate-400" />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+                        Submitted by {task.createdBy === clientId ? 'You' : 'Allie'}
+                      </span>
+                    </div>
                     
                     <div className="grid grid-cols-2 gap-4 mt-auto pt-4 border-t border-slate-50 dark:border-slate-800">
                       <div>
@@ -5899,7 +6909,7 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
 
         <Card className="rounded-[2.5rem] border-slate-200 shadow-xl dark:border-slate-800 dark:bg-slate-900 overflow-hidden flex flex-col">
           <CardHeader className="p-8 pb-4 flex flex-row items-center justify-between">
-            <CardTitle className="text-xl font-black">Recipeints</CardTitle>
+            <CardTitle className="text-xl font-black">Recipients</CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setSelectedClients(selectedClients.length === clients.length ? [] : clients.map(c => c.id))} className="text-[10px] font-black uppercase tracking-widest">
               {selectedClients.length === clients.length ? 'Deselect All' : 'Select All'}
             </Button>
@@ -5931,6 +6941,130 @@ function AdminOutreachView({ clients, user, sendNotification }: { clients: Clien
         </Card>
       </div>
     </div>
+  );
+}
+
+function SquarePaymentDialog({ 
+  amount, 
+  leadId, 
+  clientId, 
+  onSuccess, 
+  onCancel 
+}: { 
+  amount: number, 
+  leadId: string, 
+  clientId: string, 
+  onSuccess: () => void, 
+  onCancel: () => void 
+}) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const cardContainerRef = useRef<HTMLDivElement>(null);
+  const [card, setCard] = useState<any>(null);
+
+  useEffect(() => {
+    const initializeSquare = async () => {
+      if (!(window as any).Square) {
+        toast.error('Square SDK not loaded');
+        return;
+      }
+
+      try {
+        const payments = (window as any).Square.payments(
+          import.meta.env.VITE_SQUARE_APPLICATION_ID || 'sandbox-sq0idb-your-app-id',
+          import.meta.env.VITE_SQUARE_LOCATION_ID || 'main'
+        );
+        const cardInstance = await payments.card();
+        await cardInstance.attach('#card-container');
+        setCard(cardInstance);
+      } catch (e) {
+        console.error('Square init error:', e);
+      }
+    };
+
+    initializeSquare();
+
+    return () => {
+      if (card) {
+        // cleanup if needed
+      }
+    };
+  }, []);
+
+  const handlePayment = async () => {
+    if (!card || isProcessing) return;
+    setIsProcessing(true);
+
+    try {
+      const result = await card.tokenize();
+      if (result.status === 'OK') {
+        const response = await fetch('/api/process-lead-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceId: result.token,
+            amount,
+            leadId,
+            clientId
+          })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          toast.success('Payment Successful!');
+          onSuccess();
+        } else {
+          throw new Error(data.message || 'Payment failed');
+        }
+      } else {
+        throw new Error(result.errors?.[0]?.message || 'Tokenization failed');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Payment processing error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-[450px] rounded-[2.5rem] p-8 border-none shadow-2xl">
+        <DialogHeader className="mb-6">
+          <div className="h-14 w-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-4 dark:bg-blue-900/20">
+            <CreditCard className="h-7 w-7 text-blue-600" />
+          </div>
+          <DialogTitle className="text-2xl font-black tracking-tight">Purchase Lead</DialogTitle>
+          <DialogDescription className="font-medium text-slate-500">
+            Securely complete your purchase of this lead for <span className="text-slate-900 dark:text-white font-black">${amount}</span>.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          <div id="card-container" className="min-h-[100px] p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 dark:bg-slate-800 dark:border-slate-700"></div>
+          
+          <div className="flex flex-col space-y-3">
+            <Button 
+              onClick={handlePayment} 
+              disabled={isProcessing}
+              className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl"
+            >
+              {isProcessing ? 'Processing...' : `Pay $${amount} Now`}
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={onCancel}
+              className="w-full h-12 rounded-2xl font-bold text-slate-400 hover:text-slate-900"
+            >
+              Cancel Transaction
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-center space-x-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            <LockIcon className="h-3 w-3" />
+            <span>Secured via Square</span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -6202,13 +7336,119 @@ function ClientSettingsView({ client, onUpdate, setActiveTab }: { client: Client
   );
 }
 
-function ClientPortal({ user, client, projects, tasks, contracts, payments, vitals, scheduledSessions, leads, campaigns, clientCustomers, clientPayments, messages, notifications, sendNotification, onStartCall, incomingCall, onDismissCall, activeTab, setActiveTab, theme, toggleTheme, onOpenSearch }: { 
+function ClientPaymentPlansView({ paymentPlans, clientId }: { paymentPlans: PaymentPlan[], clientId: string }) {
+  const handleApproval = async (planId: string, approved: boolean) => {
+    if (!confirm(`Are you sure you want to ${approved ? 'approve' : 'decline'} this financial plan?`)) return;
+    try {
+      await updateDoc(doc(db, 'paymentPlans', planId), {
+        status: approved ? 'Approved' : 'Declined',
+        updatedAt: serverTimestamp()
+      });
+      toast.success(approved ? 'Plan approved' : 'Plan declined');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'paymentPlans');
+    }
+  };
+
+  const clientPlans = paymentPlans.filter(p => p.clientId === clientId);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col space-y-2">
+        <h2 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white uppercase">Payment Plans</h2>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400 italic">Manage your scheduled payments and installment plans.</p>
+      </div>
+ 
+      <div className="grid gap-8">
+        {clientPlans.length === 0 ? (
+          <Card className="p-12 text-center border-dashed border-2 border-slate-100 rounded-[2.5rem] bg-white/50">
+            <div className="h-20 w-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <CreditCard className="h-10 w-10 text-slate-300" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">No active plans yet</h3>
+            <p className="text-sm text-slate-500 mt-2">Check back once your advisor has set up a payment schedule.</p>
+          </Card>
+        ) : (
+          clientPlans.map(plan => (
+            <Card key={plan.id} className="p-8 border-none bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl shadow-slate-100/50 dark:shadow-none overflow-hidden relative group">
+              <div className={`absolute top-0 right-0 px-8 py-2 font-black uppercase text-[10px] tracking-widest text-white rounded-bl-2xl ${
+                plan.status === 'Approved' ? 'bg-green-500' :
+                plan.status === 'Declined' ? 'bg-red-500' :
+                'bg-amber-500'
+              }`}>
+                {plan.status}
+              </div>
+ 
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{plan.title}</h3>
+                    <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">{plan.installments} payments scheduled</p>
+                  </div>
+                  
+                  <div className="flex items-center space-x-8">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Plan Value</p>
+                      <p className="text-3xl font-black text-slate-900 dark:text-white italic tracking-tighter">${plan.totalAmount.toLocaleString()}</p>
+                    </div>
+                    <div className="h-10 w-px bg-slate-100 dark:bg-slate-800" />
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Frequency</p>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest">{plan.frequency}</p>
+                    </div>
+                  </div>
+ 
+                  <p className="text-sm text-slate-500 font-medium leading-relaxed max-w-xl">{plan.description}</p>
+                </div>
+ 
+                <div className="flex flex-col space-y-3 min-w-[200px]">
+                  {plan.status === 'Pending' && (
+                    <>
+                      <Button 
+                        onClick={() => handleApproval(plan.id, true)}
+                        className="h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all w-full"
+                      >
+                        Approve Plan
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleApproval(plan.id, false)}
+                        className="h-14 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all w-full"
+                      >
+                        Decline
+                      </Button>
+                    </>
+                  )}
+                  {plan.status === 'Approved' && (
+                    <div className="p-4 bg-green-50 rounded-2xl border border-green-100 text-center">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-1">Plan Approved</p>
+                      <p className="text-xs font-bold text-green-700">Financial agreement in effect.</p>
+                    </div>
+                  )}
+                  {plan.status === 'Declined' && (
+                    <div className="p-4 bg-red-50 rounded-2xl border border-red-100 text-center">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mb-1">Plan Declined</p>
+                      <p className="text-xs font-bold text-red-700">Contact admin for renegotiation.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ClientPortal({ user, client, projects, tasks, contracts, payments, paymentPlans, vitals, scheduledSessions, leads, campaigns, clientCustomers, clientPayments, messages, notifications, sendNotification, onStartCall, incomingCall, onDismissCall, activeTab, setActiveTab, theme, toggleTheme, onOpenSearch }: { 
   user: User, 
   client: Client | null, 
   projects: Project[], 
   tasks: Task[],
   contracts: Contract[], 
   payments: Payment[], 
+  paymentPlans: PaymentPlan[],
   vitals: Vital[],
   scheduledSessions: ScheduledSession[],
   leads: Lead[],
@@ -6441,6 +7681,12 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
         />
         <SidebarLink 
           icon={<CreditCard className="h-5 w-5" />} 
+          label="Strategy" 
+          active={activeTab === 'payments'} 
+          onClick={() => { setActiveTab('payments'); setIsMobileMenuOpen(false); }} 
+        />
+        <SidebarLink 
+          icon={<CreditCard className="h-5 w-5" />} 
           label="Revenue" 
           active={activeTab === 'revenue'} 
           onClick={() => { setActiveTab('revenue'); setIsMobileMenuOpen(false); }} 
@@ -6670,6 +7916,13 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
             />
           </TabsContent>
 
+          <TabsContent value="payments" className="space-y-8">
+            <ClientPaymentPlansView 
+              paymentPlans={paymentPlans}
+              clientId={client.id}
+            />
+          </TabsContent>
+
           <TabsContent value="overview" className="space-y-8">
             {incomingCall && (
               <motion.div
@@ -6895,46 +8148,77 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
             </div>
           </TabsContent>
 
-          <TabsContent value="projects" className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <TabsContent value="projects" className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Active Products</h2>
+                <p className="text-sm text-slate-500 font-medium">Your current projects, platforms, and creative assets.</p>
+              </div>
+            </div>
+            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
               {projects.map(project => (
-                <Card key={project.id} className="border-slate-200 shadow-sm overflow-hidden flex flex-col dark:border-slate-800 dark:bg-slate-900 rounded-[2rem] transition-all hover:shadow-xl hover:translate-y-[-4px]">
-                  <div className="h-40 bg-slate-50 dark:bg-slate-950 flex items-center justify-center border-b border-slate-100 dark:border-slate-800 relative group">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-600/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <Briefcase className="h-16 w-16 text-slate-200 dark:text-slate-800 group-hover:scale-110 transition-transform duration-500" />
-                    <Badge className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm text-slate-900 border-slate-100 font-black uppercase text-[9px] tracking-widest px-3 py-1 dark:bg-slate-900/90 dark:text-slate-100 dark:border-slate-800 shadow-sm">
+                <Card key={project.id} className="border-slate-200 shadow-sm overflow-hidden flex flex-col dark:border-slate-800 dark:bg-slate-900 rounded-[2.5rem] transition-all hover:shadow-2xl hover:translate-y-[-8px] group duration-500">
+                  <div className="h-56 bg-slate-100 dark:bg-slate-950 flex items-center justify-center border-b border-slate-100 dark:border-slate-800 relative overflow-hidden">
+                    {project.thumbnailUrl ? (
+                      <img 
+                        src={project.thumbnailUrl} 
+                        alt={project.title} 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <Briefcase className="h-16 w-16 text-slate-300 dark:text-slate-800 transition-transform duration-500 group-hover:scale-110 group-hover:rotate-6" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mt-4 opacity-50">{project.type}</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <Badge className="absolute top-6 right-6 bg-white/90 backdrop-blur-md text-slate-900 border-none font-black uppercase text-[10px] tracking-widest px-4 py-1.5 dark:bg-slate-900/90 dark:text-slate-100 shadow-xl">
                       {project.paymentStatus?.toUpperCase() || 'NOT PAID'}
                     </Badge>
                   </div>
-                  <CardHeader className="p-6">
-                    <div className="flex items-center justify-between mb-3">
-                      <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest dark:border-slate-700 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-800/30 px-2.5 py-0.5">{project.type}</Badge>
-                      <Badge className={`font-black uppercase text-[10px] tracking-widest px-2.5 py-0.5 ${
-                        project.status === 'In Progress' ? 'bg-green-600 text-white' : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                  <CardHeader className="p-8 pb-4">
+                    <div className="flex items-center space-x-2 mb-4">
+                      <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest dark:border-slate-700 dark:text-slate-500 bg-slate-50/50 dark:bg-slate-800/30 px-3 py-1 rounded-full border-slate-200">{project.type}</Badge>
+                      <Badge className={`font-black uppercase text-[9px] tracking-widest px-3 py-1 rounded-full border-none shadow-sm ${
+                        project.status === 'Completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' :
+                        project.status === 'In Progress' ? 'bg-blue-600 text-white' : 
+                        'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
                       }`}>{project.status}</Badge>
                     </div>
-                    <CardTitle className="text-xl font-black text-slate-900 dark:text-white leading-tight">{project.title}</CardTitle>
+                    <CardTitle className="text-2xl font-black text-slate-900 dark:text-white leading-tight tracking-tight">{project.title}</CardTitle>
                   </CardHeader>
-                  <CardContent className="px-6 pb-6 pt-0 flex-1 flex flex-col">
-                    <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 font-medium leading-relaxed">{project.description || 'No description provided.'}</p>
-                    <div className="mt-6 pt-5 border-t border-slate-50 dark:border-slate-800 grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Budget</p>
-                        <p className="text-lg font-black text-slate-900 dark:text-white tracking-tight">${project.budget?.toLocaleString()}</p>
+                  <CardContent className="px-8 pb-8 pt-0 flex-1 flex flex-col">
+                    <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 font-medium leading-relaxed mb-8">{project.description || 'No description provided.'}</p>
+                    
+                    <div className="mt-auto space-y-6">
+                      <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Project Value</p>
+                          <p className="text-xl font-black text-slate-900 dark:text-white tracking-tight">${project.budget?.toLocaleString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Paid Status</p>
+                          <p className={`text-xl font-black tracking-tight ${project.totalPaid && project.totalPaid >= (project.budget || 0) ? 'text-green-600 dark:text-green-400' : 'text-blue-500'}`}>
+                            ${project.totalPaid?.toLocaleString() || '0'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Paid Amount</p>
-                        <p className="text-lg font-black text-green-600 dark:text-green-400 tracking-tight">${project.totalPaid?.toLocaleString() || '0'}</p>
-                      </div>
+
+                      {project.liveUrl && (
+                        <Button 
+                          onClick={() => window.open(project.liveUrl, '_blank', 'noopener,noreferrer')}
+                          className="w-full h-14 bg-slate-900 text-white hover:bg-slate-800 rounded-2xl font-black uppercase tracking-widest text-xs dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center group/btn"
+                        >
+                          View Live Instance
+                          <ExternalLink className="ml-2 h-4 w-4 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
+                        </Button>
+                      ) || (
+                        <Button disabled className="w-full h-14 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase tracking-widest text-xs dark:bg-slate-800 dark:text-slate-600 cursor-not-allowed">
+                          Link Coming Soon
+                        </Button>
+                      )}
                     </div>
-                    {project.liveUrl && (
-                      <Button 
-                        render={<a href={project.liveUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="w-full h-full flex items-center justify-center" />}
-                        className="w-full h-11 bg-slate-900 text-white hover:bg-slate-800 mt-6 rounded-xl font-black uppercase tracking-widest text-xs dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md hover:shadow-lg transition-all"
-                      >
-                        View Live Instance
-                      </Button>
-                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -7109,23 +8393,40 @@ function ClientPortal({ user, client, projects, tasks, contracts, payments, vita
                             id={`vital-${v.id}`}
                             className="w-full rounded-2xl border-2 border-slate-100 bg-white px-5 py-4 text-sm transition-all focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none min-h-[140px] dark:border-slate-800 dark:bg-slate-950 dark:text-white placeholder:text-slate-400 font-medium"
                             placeholder="Safely paste the requested credentials or technical details here..."
-                            onBlur={async (e) => {
-                              const val = e.target.value;
-                              if (!val) return;
-                              if (confirm('Verify: Move this information to the secure vault? Only Allie will have access.')) {
-                                try {
-                                  await updateDoc(doc(db, 'vitals', v.id), {
-                                    value: val,
-                                    status: 'Provided',
-                                    updatedAt: serverTimestamp()
-                                  });
-                                  toast.success('Successfully Vaulted');
-                                } catch (error) {
-                                  handleFirestoreError(error, OperationType.UPDATE, 'vitals');
-                                }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.ctrlKey) {
+                                (document.getElementById(`btn-submit-${v.id}`) as HTMLButtonElement)?.click();
                               }
                             }}
                           />
+                          <div className="flex justify-end">
+                            <Button 
+                              id={`btn-submit-${v.id}`}
+                              className="h-12 px-8 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                              onClick={async () => {
+                                const textarea = document.getElementById(`vital-${v.id}`) as HTMLTextAreaElement;
+                                const val = textarea.value;
+                                if (!val) {
+                                  toast.error('Please enter details');
+                                  return;
+                                }
+                                if (confirm('Verify: Move this information to the secure vault? Only Allie will have access.')) {
+                                  try {
+                                    await updateDoc(doc(db, 'vitals', v.id), {
+                                      value: val,
+                                      status: 'Provided',
+                                      updatedAt: serverTimestamp()
+                                    });
+                                    toast.success('Successfully Vaulted');
+                                  } catch (error) {
+                                    handleFirestoreError(error, OperationType.UPDATE, 'vitals');
+                                  }
+                                }
+                              }}
+                            >
+                              Securely Save to Vault
+                            </Button>
+                          </div>
                           <p className="text-[10px] text-slate-400 italic px-1">Your data is stored in an encrypted Firestore collection accessible only by authenticated staff.</p>
                         </div>
                       </div>

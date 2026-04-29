@@ -7,8 +7,16 @@ import dotenv from 'dotenv';
 import sgMail from '@sendgrid/mail';
 import twilio from 'twilio';
 
+import { SquareClient, SquareEnvironment } from 'square';
+
 // Load environment variables
 dotenv.config();
+
+// Initialize Square Client
+const square = new SquareClient({
+  accessToken: process.env.SQUARE_ACCESS_TOKEN,
+  environment: SquareEnvironment.Sandbox, // Default to sandbox for safety
+});
 
 console.log('--- SERVER STARTING ---');
 console.log('NODE_ENV:', process.env.NODE_ENV);
@@ -257,6 +265,38 @@ async function startServer() {
     } catch (error) {
       console.error('Critical Server Error:', error);
       res.status(500).json({ error: 'Internal Server Error', message: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Square Payment API
+  app.post('/api/process-lead-payment', async (req, res) => {
+    console.log('--- Lead Payment Request ---');
+    const { sourceId, amount, leadId, clientId } = req.body;
+
+    try {
+      if (!process.env.SQUARE_ACCESS_TOKEN) {
+        throw new Error('Square Access Token not configured on server.');
+      }
+
+      // Use correct Square API call for version 44+
+      const response = await square.payments.create({
+        sourceId,
+        idempotencyKey: `${leadId}-${clientId}-${Date.now()}`,
+        amountMoney: {
+          amount: BigInt(Math.round(amount * 100)), // Convert to cents
+          currency: 'USD',
+        },
+        note: `Lead Purchase: ${leadId} by Client: ${clientId}`,
+      });
+
+      console.log('[Square] Payment successful:', response.payment.id);
+      res.json({ success: true, paymentId: response.payment.id });
+    } catch (error) {
+      console.error('[Square Error]:', error);
+      res.status(500).json({ 
+        error: 'Payment failed', 
+        message: error.errors ? error.errors[0].detail : error.message 
+      });
     }
   });
 

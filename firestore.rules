@@ -32,11 +32,19 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && request.auth.token.email_verified == true && (
-        request.auth.token.email in ["allie.pakele@gmail.com", "allie@vibesandvolumes.com"] ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      return isAuthenticated() && (
+        (request.auth.token.email.lower() == "allie.pakele@gmail.com") ||
+        (request.auth.token.email_verified == true && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        ))
       );
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.token.email.lower() == "allie.pakele@gmail.com";
     }
 
     function isClient(clientId) {
@@ -128,6 +136,17 @@ service cloud.firestore {
         (data.get('id', '') is string);
     }
 
+    function isValidPaymentPlan(data) {
+      return data.keys().hasAll(['clientId', 'title', 'totalAmount', 'installments', 'frequency', 'status', 'createdAt']) &&
+        data.keys().size() >= 7 && data.keys().size() <= 10 &&
+        data.clientId is string &&
+        data.title is string && data.title.size() <= 200 &&
+        data.totalAmount is number && data.totalAmount >= 0 &&
+        data.installments is number && data.installments > 0 &&
+        data.frequency in ['weekly', 'bi-weekly', 'monthly', 'custom'] &&
+        data.status in ['Pending', 'Approved', 'Declined', 'Completed'];
+    }
+
     // ===============================================================
     // Collection Match Blocks
     // ===============================================================
@@ -211,6 +230,19 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /paymentPlans/{planId} {
+      allow get: if isAdmin() || isClient(existing().clientId);
+      allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
+      allow create: if isAdmin() && isValidPaymentPlan(incoming());
+      allow update: if (isAdmin() && isValidPaymentPlan(incoming())) ||
+                       (isClient(existing().clientId) && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                        incoming().status in ['Approved', 'Declined'] &&
+                        existing().status == 'Pending' &&
+                        incoming().updatedAt == request.time);
+      allow delete: if isAdmin();
+    }
+
     match /contracts/{contractId} {
       allow get: if isAdmin() || isClient(existing().clientId);
       allow list: if isAdmin() || (isAuthenticated() && isClient(resource.data.clientId));
@@ -244,8 +276,8 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isOwner(resource.data.userId);
-      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+      allow update: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
     }
 
     match /contractTemplates/{templateId} {

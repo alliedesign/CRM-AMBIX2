@@ -2,7 +2,7 @@
 
 ## Data Invariants
 1. **Client Isolation**: A client MUST NOT be able to read or write data belonging to another client.
-2. **Admin Supremacy**: Admin accounts (`allie.pakele@gmail.com`, `allie@vibesandvolumes.com`) have full access to all collections.
+2. **Admin Supremacy**: Admin accounts (`allie.pakele@gmail.com`) have full access to all collections.
 3. **Immutable Ownership**: The `clientId` and `createdBy` fields must remain unchanged during updates.
 4. **Valid Relationships**: Leads, campaigns, and payments MUST reference a valid `clientId`.
 5. **Strict Schema**: All writes must conform to the defined types and size limits.

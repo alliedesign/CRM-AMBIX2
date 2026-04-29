@@ -66,7 +66,7 @@
         "email": { "type": "string" },
         "phone": { "type": "string" },
         "source": { "type": "string" },
-        "status": { "type": "string" },
+        "status": { "type": "string", "enum": ["New", "Purchased", "Interested", "Converted", "Lost", "Declined"] },
         "clientId": { "type": "string" },
         "type": { "type": "string" },
         "pricePaid": { "type": "number" },
@@ -155,6 +155,38 @@
         "createdAt": { "type": "string" }
       },
       "required": ["clientId", "status", "createdBy", "createdAt"]
+    },
+    "PaymentPlan": {
+      "title": "Payment Plan",
+      "description": "A scheduled financial commitment for a client.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "installments": { "type": "number" },
+        "frequency": { "type": "string", "enum": ["weekly", "bi-weekly", "monthly", "custom"] },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Declined", "Completed"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["clientId", "title", "totalAmount", "installments", "frequency", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Activity alerts for users and admins.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "actionUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
     }
   },
   "firestore": {
@@ -167,6 +199,8 @@
     "/clientPayments": { "schema": "ClientPayment", "description": "Internal revenue for clients" },
     "/payments": { "schema": "Payment", "description": "Revenue for Ambix Allie" },
     "/contractTemplates": { "schema": "ContractTemplate", "description": "System-wide contract templates" },
-    "/calls": { "schema": "Call", "description": "Video call signaling" }
+    "/calls": { "schema": "Call", "description": "Video call signaling" },
+    "/paymentPlans": { "schema": "PaymentPlan", "description": "Financial commitment schedules" },
+    "/notifications": { "schema": "Notification", "description": "Activity stream alerts" }
   }
 }
